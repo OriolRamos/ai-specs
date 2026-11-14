@@ -51,7 +51,7 @@ class RepoTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def init(self) -> None:
-        code, out = run("init", str(self.repo), "--prefix", "LB")
+        code, out = run("init", str(self.repo), "--prefix", "LB", "--owner", "owner1")
         self.assertEqual(code, 0, out)
 
     def fill(self, change: str = "add-greeting", size: str = "S") -> Path:
@@ -85,17 +85,17 @@ class InitTest(RepoTest):
     def test_refuses_a_repo_with_another_process(self) -> None:
         (self.repo / "openspec").mkdir()
         (self.repo / "openspec" / "config.yaml").write_text("schema: spec-driven\n", encoding="utf-8")
-        code, out = run("init", str(self.repo), "--prefix", "LB")
+        code, out = run("init", str(self.repo), "--prefix", "LB", "--owner", "owner1")
         self.assertEqual(code, 1)
         self.assertIn("not written by ai-specs", out)
         self.assertEqual((self.repo / "openspec" / "config.yaml").read_text(encoding="utf-8"), "schema: spec-driven\n")
 
     def test_refuses_an_azure_devops_repo_and_a_prefix_change(self) -> None:
         (self.repo / ".agents" / "skills" / "azure-devops").mkdir(parents=True)
-        self.assertEqual(run("init", str(self.repo), "--prefix", "LB")[0], 1)
+        self.assertEqual(run("init", str(self.repo), "--prefix", "LB", "--owner", "owner1")[0], 1)
         (self.repo / ".agents" / "skills" / "azure-devops").rmdir()
         self.init()
-        code, out = run("init", str(self.repo), "--prefix", "XY")
+        code, out = run("init", str(self.repo), "--prefix", "XY", "--owner", "owner1")
         self.assertEqual(code, 1)
         self.assertIn("never change", out)
 

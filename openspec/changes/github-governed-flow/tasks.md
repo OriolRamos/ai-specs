@@ -1,15 +1,15 @@
 ## 0. Approval and baseline
 
-- [ ] 0.1 [owner] Review and approve this change (proposal, design, the seven delta specs, tasks) — test first: n/a — proof: `openspec validate github-governed-flow --strict && python3 scripts/ai_specs.py lint . github-governed-flow` green on the reviewed commit (human gate)
+- [x] 0.1 [owner] Review and approve this change (proposal, design, the seven delta specs, tasks) — test first: n/a — proof: `openspec validate github-governed-flow --strict && python3 scripts/ai_specs.py lint . github-governed-flow` green on the reviewed commit (human gate)
 - [ ] 0.2 [owner] Install and log in the GitHub CLI on this machine — test first: n/a — proof: `gh auth status` shows the owner's login with `repo` and `workflow` scopes (human gate)
 - [ ] 0.3 [all five repos] Record the baseline: each repo's tests and lint on its current default branch — test first: n/a — proof: outputs pasted in the epic issue once it exists
 
 ## 1. ai-specs 0.2 · approval (ai-specs repo)
 
-- [ ] 1.1 Digest: `ai-specs digest` with checkbox and CRLF normalisation, live or archived folder — test first: `tests/test_approval.py::DigestTest` — proof: `python3 -m unittest tests.test_approval.DigestTest`
-- [ ] 1.2 Roles: stdlib reader for `openspec/roles.yaml`, lint rule, `init` writes a default with the given owner — test first: `tests/test_approval.py::RolesTest` — proof: `python3 -m unittest tests.test_approval.RolesTest`
-- [ ] 1.3 `approve`: gh identity, approvers check, TTY and `CLAUDECODE` refusal, typed confirmation, comment and label — test first: `tests/test_approval.py::ApproveTest` (fake `gh` on PATH) — proof: `python3 -m unittest tests.test_approval.ApproveTest`
-- [ ] 1.4 `check-approval` by issue or `--pr`: author must match, `min_approvals`, stale digest, exit codes 0/1/2 — test first: `tests/test_approval.py::CheckTest` — proof: `python3 -m unittest tests.test_approval.CheckTest`
+- [x] 1.1 Digest: `ai-specs digest` with checkbox and CRLF normalisation, live or archived folder — test first: `tests/test_approval.py::DigestTest` — proof: `python3 -m unittest tests.test_approval.DigestTest`
+- [x] 1.2 Roles: stdlib reader for `openspec/roles.yaml`, lint rule, `init` writes a default with the given owner — test first: `tests/test_approval.py::RolesTest` — proof: `python3 -m unittest tests.test_approval.RolesTest`
+- [x] 1.3 `approve`: gh identity, approvers check, TTY and `CLAUDECODE` refusal, typed confirmation, comment and label — test first: `tests/test_approval.py::ApproveTest` (fake `gh` on PATH) — proof: `python3 -m unittest tests.test_approval.ApproveTest`
+- [x] 1.4 `check-approval` by issue or `--pr`: author must match, `min_approvals`, stale digest, exit codes 0/1/2 — test first: `tests/test_approval.py::CheckTest` — proof: `python3 -m unittest tests.test_approval.CheckTest`
 
 ## 2. ai-specs 0.2 · contracts, catalog, gate, memory (ai-specs repo)
 

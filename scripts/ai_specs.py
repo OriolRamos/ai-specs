@@ -14,6 +14,12 @@ Commands:
       every scenario, task format, no TODO left. Exit 1 on errors.
   doctor <repo> [--json]
       Report which process the repo runs, the kit version, the openspec command to use and the lint state.
+  digest <repo> <change-id>
+      Print the change's digest (ASP-020): ticking tasks does not change it; any scope edit does.
+  approve <repo> <issue>
+      Human approval of the change linked to the issue (ASP-022). Run it yourself, in your own terminal.
+  check-approval <repo> (<issue> | --pr <n>)
+      Exit 0 when the approvers approved the current digest, 1 when not or stale, 2 when it cannot check (ASP-023).
 """
 from __future__ import annotations
 
@@ -25,6 +31,9 @@ import sys
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # also when run through the ~/.local/bin symlink
+import approval  # noqa: E402
 
 KIT = Path(__file__).resolve().parent.parent
 VERSION = (KIT / "VERSION").read_text(encoding="utf-8").strip()
@@ -99,7 +108,7 @@ def write_block(target: Path, block: str) -> None:
     target.write_text(text if text.endswith("\n") else text + "\n", encoding="utf-8")
 
 
-def cmd_init(repo: Path, prefix: str, project: str, language: str) -> list[str]:
+def cmd_init(repo: Path, prefix: str, project: str, language: str, owner: str | None = None) -> list[str]:
     if not PREFIX_RE.match(prefix):
         raise AiSpecsError(f"prefix '{prefix}' must be 2-10 upper-case letters or digits, starting with a letter")
     state = read_state(repo)
@@ -115,6 +124,15 @@ def cmd_init(repo: Path, prefix: str, project: str, language: str) -> list[str]:
         keep = folder / ".gitkeep"
         if not any(folder.iterdir()):
             keep.write_text("", encoding="utf-8")
+    roles = openspec / "roles.yaml"
+    if not roles.exists():
+        if not owner:
+            try:
+                owner = approval.ghcli.login(repo)
+            except approval.ghcli.GhError as exc:
+                raise AiSpecsError(f"openspec/roles.yaml needs an owner: pass --owner <github-login> ({exc})") from exc
+        roles.write_text(approval.roles_template(owner), encoding="utf-8")
+        done.append(f"openspec/roles.yaml (approver: {owner})")
     values = {"VERSION": VERSION, "PREFIX": prefix, "PROJECT": project, "LANGUAGE": language}
     (openspec / "config.yaml").write_text(render((KIT / "kit" / "config.yaml.tmpl").read_text(encoding="utf-8"),
                                                  **values), encoding="utf-8")
@@ -258,9 +276,18 @@ def cmd_lint(repo: Path, changes: list[str]) -> list[str]:
     if state.process != "ai-specs":
         raise AiSpecsError(f"{repo} does not run ai-specs ({state.reason or state.process})")
     errors: list[str] = []
+    if version_tuple(state.version) >= (0, 2, 0):
+        errors += approval.roles_errors(repo)
     for change in changes or state.changes:
         errors += lint_change(repo, change, state.prefix)
     return errors
+
+
+def version_tuple(text: str) -> tuple[int, ...]:
+    try:
+        return tuple(int(x) for x in text.split("."))
+    except ValueError:
+        return (0,)
 
 
 # ---------------------------------------------------------------- doctor
@@ -285,6 +312,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--prefix", required=True)
     p.add_argument("--project")
     p.add_argument("--language", default="English")
+    p.add_argument("--owner", help="GitHub login written to openspec/roles.yaml when it does not exist yet")
     p = sub.add_parser("scaffold")
     p.add_argument("repo", type=Path)
     p.add_argument("change")
@@ -296,6 +324,16 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("doctor")
     p.add_argument("repo", type=Path)
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("digest")
+    p.add_argument("repo", type=Path)
+    p.add_argument("change")
+    p = sub.add_parser("approve")
+    p.add_argument("repo", type=Path)
+    p.add_argument("issue", type=int)
+    p = sub.add_parser("check-approval")
+    p.add_argument("repo", type=Path)
+    p.add_argument("issue", type=int, nargs="?")
+    p.add_argument("--pr", type=int)
     args = ap.parse_args(argv)
     repo = args.repo.resolve()
     if not repo.is_dir():
@@ -303,12 +341,22 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         if args.cmd == "init":
-            for item in cmd_init(repo, args.prefix, args.project or repo.name, args.language):
+            for item in cmd_init(repo, args.prefix, args.project or repo.name, args.language, args.owner):
                 print(f"[ok] {item}")
             print(f"next: {openspec_command(repo)} validate --all --strict")
         elif args.cmd == "scaffold":
             for item in cmd_scaffold(repo, args.change, args.size, args.capability):
                 print(f"[ok] {item}")
+        elif args.cmd == "digest":
+            print(approval.digest(approval.change_folder(repo, args.change)))
+        elif args.cmd == "approve":
+            approval.approve(repo, args.issue)
+        elif args.cmd == "check-approval":
+            if (args.issue is None) == (args.pr is None):
+                print("give an issue number or --pr <n>", file=sys.stderr)
+                return 2
+            number = args.issue if args.issue is not None else approval.issue_of_pr(repo, args.pr)
+            print(approval.check(repo, number))
         elif args.cmd == "lint":
             errors = cmd_lint(repo, args.changes)
             for error in errors:
@@ -331,6 +379,12 @@ def main(argv: list[str] | None = None) -> int:
     except AiSpecsError as exc:
         print(f"ai-specs: {exc}", file=sys.stderr)
         return 1
+    except approval.ApprovalError as exc:
+        print(f"ai-specs: {exc}", file=sys.stderr)
+        return exc.code
+    except approval.ghcli.GhError as exc:
+        print(f"ai-specs: {exc}", file=sys.stderr)
+        return 2
     return 0
 
 
