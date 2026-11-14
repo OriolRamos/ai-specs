@@ -12,7 +12,7 @@ This repo is the ai-specs standard and kit (see `README.md` and `docs/standard.m
   cannot parse; a test guards it).
 - Before saying done: `python3 -m unittest discover -s tests` and, if `kit/` or `scripts/` changed,
   `bash scripts/e2e.sh` (real OpenSpec CLI in a scratch folder; CI runs both).
-- Code, comments, commits and docs in English. Conventional Commits. Branch `feat/<slug>` → PR to `main`.
+- Code, comments, commits and docs in English. Conventional Commits. Branch `change/<slug>` (or `feat/<slug>`) cut from `develop` → PR to `develop` (`develop` is the default branch).
 
 <!-- ai-specs:begin (managed by `ai_specs.py init`; change the ai-specs kit, not this block) -->
 ## Specs, approval and branches (ai-specs 0.2.2)
