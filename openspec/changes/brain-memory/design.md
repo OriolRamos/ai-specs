@@ -298,3 +298,16 @@ Deviations found while building, recorded here so the design matches what ships:
   `~/.config/rsc-brain/token` or the vault. `ai-brain activate` prints both steps and never asks for a token.
 - **Workspace ADR number.** The workspace decision is ADR-019, because ADR-018 was already taken.
 - **Kit version.** The memory section ships in kit 0.2.2 (ADR-0004).
+- **The weekly run is fenced in, not only pre-approved** (security review). `--allowedTools` only pre-approves tools,
+  so the job also passes `--disallowedTools Bash Edit Write NotebookEdit WebFetch WebSearch`, `--strict-mcp-config`
+  with a config holding only `rsc-brain`, and `--permission-mode dontAsk`, and runs from an empty working folder of its
+  own, so global permission rules and other MCP servers cannot widen it and Read cannot reach the home folder by default.
+- **No host ports for the database or Ollama** (security review). ParadeDB and Ollama sit on an internal Docker network
+  `ai-brain`; RSC Brain's app joins it through `compose.override.yaml` and reaches `paradedb:5432` and `ollama:11434`
+  by name. Only the web stays on `127.0.0.1:8090`. The launcher's first-install database check runs in a throwaway
+  container; while the launcher runs, a small `docker` wrapper first on its PATH adds `--network ai-brain` to exactly
+  that call (the launcher file is unchanged and still SHA-256-checked).
+- **Undeclared brains block a backup.** The installation's real brain list is read from its database; a brain missing
+  from `machine.toml` counts as `local-only`, and an unreadable list refuses.
+- **OAuth connections cannot decide.** Like tokens, an OAuth connection needs a curator-granted wiki-write row to decide
+  or write the wiki; the activation text tells the person to consent read + write and never grant it.

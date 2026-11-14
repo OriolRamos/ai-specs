@@ -130,7 +130,7 @@ silently.
 #### Scenario: Scheduled run's permissions
 - **GIVEN** the installed weekly job
 - **WHEN** its command line is read
-- **THEN** it runs `claude -p "/brain-consolidate"` with an allowlist of the brain's MCP tools plus Read, Grep and Glob only
+- **THEN** it runs `claude -p "/brain-consolidate" --allowedTools "mcp__rsc-brain__*" Read Grep Glob --disallowedTools Bash Edit Write NotebookEdit WebFetch WebSearch --strict-mcp-config --mcp-config <a file with only rsc-brain> --permission-mode dontAsk` from an empty working folder of its own
 - **Proof:** `python3 -m unittest tests.test_ai_brain.ScheduleTest` in ai-brain passes
 
 ### Requirement: ASP-109 — ai-brain manages each machine's memory
