@@ -45,7 +45,7 @@ so every wiki change is decided by the owner in the web against the proposal's f
 - **GIVEN** the agent token installed by the `brain` module
 - **WHEN** it calls `brain_decide` on a proposal
 - **THEN** the call is refused for lack of permission and the wiki is unchanged
-- **Proof:** `python3 -m unittest tests.test_brain_module.TokenScopeTest` in ai-hq passes (checks the install requests a contributor key only)
+- **Proof:** `python3 -m unittest tests.test_ai_brain.TokenScopeTest` in ai-brain passes (checks the install requests a contributor key only)
 
 ### Requirement: ASP-103 — AI-HQ module brain
 AI-HQ SHALL offer an optional module `brain` that registers the RSC Brain MCP server, its session-start and stop hooks
@@ -125,13 +125,13 @@ silently.
 - **GIVEN** a last consolidation 15 days ago
 - **WHEN** a session starts
 - **THEN** the agent is asked once to offer `/brain-consolidate`
-- **Proof:** `python3 -m unittest tests.test_brain_module.OverdueTest` in ai-hq passes
+- **Proof:** `python3 -m unittest tests.test_ai_brain.OverdueTest` in ai-brain passes
 
 #### Scenario: Scheduled run's permissions
 - **GIVEN** the installed weekly job
 - **WHEN** its command line is read
 - **THEN** it runs `claude -p "/brain-consolidate"` with an allowlist of the brain's MCP tools plus Read, Grep and Glob only
-- **Proof:** `python3 -m unittest tests.test_brain_module.ScheduleTest` in ai-hq passes
+- **Proof:** `python3 -m unittest tests.test_ai_brain.ScheduleTest` in ai-brain passes
 
 ### Requirement: ASP-109 — ai-brain manages each machine's memory
 A standalone repo `ai-brain` SHALL install, run and upgrade the machine's RSC Brain (pinned release verified by SHA-256),

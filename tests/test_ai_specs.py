@@ -265,3 +265,36 @@ class PurposeTest(RepoTest):
     def test_scaffold_template_carries_a_purpose(self) -> None:
         run("scaffold", str(self.repo), "x-y", "--size", "S", "--capability", "cap")
         self.assertTrue((self.repo / "openspec/changes/x-y/specs/cap/spec.md").read_text().startswith("## Purpose"))
+
+
+class StandardMemoryTest(unittest.TestCase):
+    """ASP-073: the standard's memory section carries the taxonomy with the brain and the linking rule."""
+
+    def setUp(self) -> None:
+        text = (KIT / "docs" / "standard.md").read_text(encoding="utf-8")
+        self.assertIn("\n## 13. Memory\n", text)
+        self.section = text.split("\n## 13. Memory\n", 1)[1].split("\n## ", 1)[0]
+
+    def test_taxonomy_table_has_the_brain_row(self) -> None:
+        header = "| Knowledge | Canonical place | In the brain |"
+        self.assertIn(header, self.section)
+        rows = [line for line in self.section.splitlines() if line.startswith("| ")]
+        brain_rows = [r for r in rows if r.split("|")[2].strip() == "**brain**"]
+        self.assertEqual(len(brain_rows), 1, rows)
+        for kind in ("Research", "attempts", "failures", "lessons"):
+            self.assertIn(kind, brain_rows[0])
+        for canonical in ("`openspec/specs/`", "`docs/adr/`", "issue"):
+            self.assertTrue(any(canonical in r for r in rows), canonical)
+
+    def test_links_does_not_define_rule(self) -> None:
+        self.assertIn("ASP-073", self.section)
+        self.assertIn("links, it does not define", self.section)
+        self.assertIn("restates", self.section)
+
+    def test_one_memory_per_machine(self) -> None:
+        self.assertIn("one brain installation per machine", self.section)
+        self.assertIn("nothing leaves the machine", self.section)
+        self.assertIn("ai-brain", self.section)
+
+    def test_lessons_rule_kept(self) -> None:
+        self.assertIn("A lesson that repeats becomes a `type:change` issue", self.section)

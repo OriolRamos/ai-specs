@@ -274,3 +274,27 @@ It also lives in ai-skills (neutral). Each run:
 4. Revert the merge commits.
 
 No repo data depends on the brain, because canonical knowledge never lived only there.
+
+## Implementation notes
+
+Deviations found while building, recorded here so the design matches what ships:
+
+- **Hooks are a Python port.** RSC Brain's own Claude Code hooks are its Node CLI (`rsc-brain hook session-start|stop`),
+  which needs Node ≥ 25 on the host. The machines run Node 22, so `ai-brain hook session-start|stop` is a stdlib Python
+  port with the same contract: JSON on stdin; `POST /v1/resolve` with the repo's git remote,
+  `GET /v1/brains/<slug>/context`, `GET /v1/me/sessions`; it fails open; the token comes from `RSC_BRAIN_TOKEN` or else
+  `~/.config/rsc-brain/token` (`0600`). The session-start hook also carries the overdue-consolidation note (D11).
+- **Ollama runs as a container** in `ai-brain`'s compose project (localhost only), next to ParadeDB, and RSC Brain
+  reaches it through `compose.override.yaml` in its install folder. Nothing is installed on the host.
+- **A copy holds the whole installation.** RSC Brain's `backup` is an encrypted file of every brain on the machine, so
+  `ai-brain backup <brain>` is allowed only when every brain on the machine allows `backup` and the machine allows
+  upload: the strictest policy wins, and the refusal names each lock (D12, ASP-110).
+- **Where the tests live.** The token scope, the weekly job and the overdue check are code of `ai-brain`, so
+  `TokenScopeTest`, `ScheduleTest` and `OverdueTest` are in `ai-brain`'s `tests/test_ai_brain.py`. ai-hq keeps
+  `InstallTest`, `RegistryTest` and `SkillHooksTest` in `tests/test_brain_module.py`. Task 3.1 and the proofs of
+  ASP-102 and ASP-108 point there.
+- **Two credentials, neither stored by the installer.** The MCP server authenticates with `claude mcp login rsc-brain`
+  (OAuth, kept by Claude Code). The hooks use a read+write token without wiki-write permission, saved by the person to
+  `~/.config/rsc-brain/token` or the vault. `ai-brain activate` prints both steps and never asks for a token.
+- **Workspace ADR number.** The workspace decision is ADR-019, because ADR-018 was already taken.
+- **Kit version.** The memory section ships in kit 0.2.2 (ADR-0004).

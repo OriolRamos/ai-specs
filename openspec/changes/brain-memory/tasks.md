@@ -5,7 +5,7 @@
 
 ## 1. ai-specs (standard)
 
-- [ ] 1.1 Memory section: taxonomy table with the brain row, the "links, does not define" rule and one-memory-per-machine — test first: `tests/test_ai_specs.py::StandardMemoryTest` — proof: `python3 -m unittest tests.test_ai_specs.StandardMemoryTest`
+- [x] 1.1 Memory section: taxonomy table with the brain row, the "links, does not define" rule and one-memory-per-machine — test first: `tests/test_ai_specs.py::StandardMemoryTest` — proof: `python3 -m unittest tests.test_ai_specs.StandardMemoryTest`
 
 ## 1b. ai-brain (new repo: manager per machine)
 
@@ -20,13 +20,13 @@
 
 ## 3. ai-hq (module, registry, skills)
 
-- [ ] 3.1 Module `brain`: MCP registration, the two RSC Brain hooks, the overdue check hook and the weekly job (systemd user timer or cron) with the restricted allowlist; contributor-only token; removed when not chosen — test first: `tests/test_brain_module.py::InstallTest`, `TokenScopeTest`, `ScheduleTest`, `OverdueTest` — proof: `python3 -m unittest tests.test_brain_module`
+- [ ] 3.1 Module `brain`: MCP registration, the two RSC Brain hooks, the overdue check hook and the weekly job (systemd user timer or cron) with the restricted allowlist; contributor-only token; removed when not chosen — test first: `tests/test_brain_module.py::InstallTest` (ai-hq); `tests/test_ai_brain.py::TokenScopeTest`, `ScheduleTest`, `OverdueTest` (ai-brain, where that code lives) — proof: `python3 -m unittest tests.test_brain_module` in ai-hq and `python3 -m unittest discover -s tests` in ai-brain
 - [ ] 3.2 Registry `[hq] brain_url`, stack `brain` (RSC Brain + Ollama), `[projects.*] brain`; prereqs Docker for `brain` — test first: `tests/test_brain_module.py::RegistryTest` — proof: `python3 -m unittest tests.test_brain_module && python3 scripts/registry.py validate`
 - [ ] 3.3 Skill hooks in grill, spec, tickets, factory, triage, retro (no-op without a brain; gap rule calls `brain-map`) — test first: `tests/test_brain_module.py::SkillHooksTest` — proof: `python3 -m unittest tests.test_brain_module && python3 scripts/lint_skills.py`
 
 ## 4. hq-workspace
 
-- [ ] 4.1 Registry values (`brain_url`, `brain` per repo), ADR-018, pilot job with a `PILOT.md` per machine — test first: n/a — proof: `python3 ../ai-hq/scripts/registry.py validate`
+- [ ] 4.1 Registry values (`brain_url`, `brain` per repo), ADR-019 (ADR-018 is taken), pilot job with the personal machine's `PILOT.md` (the work machine's record stays local, D8) — test first: n/a — proof: `python3 ../ai-hq/scripts/registry.py validate`
 
 ## 5. Pilot (two weeks per machine)
 
