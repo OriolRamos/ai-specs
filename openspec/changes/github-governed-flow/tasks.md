@@ -23,16 +23,16 @@
 
 ## 3. AI-HQ on the flow (ai-hq repo)
 
-- [ ] 3.1 `scripts/tracker.py`: github backend over `gh` and null backend; managed block, states, epics with sub-issues, trailers — test first: `tests/test_tracker.py` — proof: `python3 -m unittest tests.test_tracker`
-- [ ] 3.2 Registry fields `tracker`, `gate`, `product`; validate gap when a github repo has no gate — test first: `tests/test_registry_gate.py` — proof: `python3 -m unittest tests.test_registry_gate`
-- [ ] 3.3 `scripts/repo_setup.py`: dry-run plan, `--apply`, `--undo`, idempotent (labels, branches, rename, default, protections, roles, CODEOWNERS, workflow) — test first: `tests/test_repo_setup.py` — proof: `python3 -m unittest tests.test_repo_setup`
-- [ ] 3.4 Skills: `/hq-spec` (issue + branch + propose), new `/hq-approve`, `/hq-factory` gate and PR, `/hq-ship` release/promote/tag/hotfix, `/hq-status` and `/hq-triage` from issues, `/hq-retro` lessons to change issues; `docs/openspec-mode.md` rewritten as the GitHub flow — test first: `tests/test_openspec_mode.py::FactoryGateTest`, `tests/test_ship.py`, `tests/test_retro.py` — proof: `python3 -m unittest discover -s tests && python3 scripts/lint_skills.py`
-- [ ] 3.5 `prereqs.py`: `gh` required for `hq`, `gh auth status` reported by `hq up`; `hq up` reports clones still tracking a missing `origin/main` with the fix — test first: `tests/test_modules_and_updates.py::GhPrereqTest` — proof: `python3 -m unittest tests.test_modules_and_updates`
-- [ ] 3.6 Global rules and README: branch hierarchy, roles, the agent never approves or merges — test first: `tests/test_engine_is_generic.py` — proof: `python3 -m unittest discover -s tests`
+- [x] 3.1 `scripts/tracker.py`: github backend over `gh` and null backend; managed block, states, epics with sub-issues, trailers — test first: `tests/test_tracker.py` — proof: `python3 -m unittest tests.test_tracker`
+- [x] 3.2 Registry fields `tracker`, `gate`, `product`; validate gap when a github repo has no gate — test first: `tests/test_registry_gate.py` — proof: `python3 -m unittest tests.test_registry_gate`
+- [x] 3.3 `scripts/repo_setup.py`: dry-run plan, `--apply`, `--undo`, idempotent (labels, branches, rename, default, protections, roles, CODEOWNERS, workflow) — test first: `tests/test_repo_setup.py` — proof: `python3 -m unittest tests.test_repo_setup`
+- [x] 3.4 Skills: `/hq-spec` (issue + branch + propose), new `/hq-approve`, `/hq-factory` gate and PR, `/hq-ship` release/promote/tag/hotfix, `/hq-status` and `/hq-triage` from issues, `/hq-retro` lessons to change issues; `docs/openspec-mode.md` rewritten as the GitHub flow — test first: `tests/test_openspec_mode.py::FactoryGateTest`, `tests/test_ship.py`, `tests/test_retro.py` — proof: `python3 -m unittest discover -s tests && python3 scripts/lint_skills.py`
+- [x] 3.5 `prereqs.py`: `gh` required for `hq`, `gh auth status` reported by `hq up`; `hq up` reports clones still tracking a missing `origin/main` with the fix — test first: `tests/test_modules_and_updates.py::GhPrereqTest` — proof: `python3 -m unittest tests.test_modules_and_updates`
+- [x] 3.6 Global rules and README: branch hierarchy, roles, the agent never approves or merges — test first: `tests/test_engine_is_generic.py` — proof: `python3 -m unittest discover -s tests`
 
 ## 4. Workspace and LangBrain (hq-workspace, LangBrain repos)
 
-- [ ] 4.1 Registry: every personal repo `default_branch = "develop"`, standard `git_flow`, `tracker = "github"`, `gate`; LangBrain `auto_pr_target = "develop"`; ADR-016 — test first: `ai-hq tests/test_modules_and_updates.py::RegistryPlaceholdersTest` — proof: `python3 ../ai-hq/scripts/registry.py validate`
+- [x] 4.1 Registry: every personal repo `default_branch = "develop"`, standard `git_flow`, `tracker = "github"`, `gate`; LangBrain `auto_pr_target = "develop"`; ADR-016 — test first: `ai-hq tests/test_modules_and_updates.py::RegistryPlaceholdersTest` — proof: `python3 ../ai-hq/scripts/registry.py validate`
 - [ ] 4.2 LangBrain: kit 0.2 (`init` upgrade, `roles.yaml`, workflow with gate), verify autopilot and factory follow `auto_pr_target` — test first: `tests/test_ai_skills_library.py` plus a new autopilot target test — proof: `.venv/bin/python -m pytest -q` in LangBrain
 
 ## 5. GitHub, real (human gate for every repo)
