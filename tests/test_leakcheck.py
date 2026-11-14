@@ -45,6 +45,13 @@ class LeakCheckTest(unittest.TestCase):
         self.git("commit", "-q", "-m", name)
         return self.git("rev-parse", "HEAD").strip()
 
+    def test_folder_outside_git_is_scanned_by_files(self) -> None:
+        plain = Path(self._tmp.name) / "plain"
+        (plain / "docs").mkdir(parents=True)
+        (plain / "docs" / "a.md").write_text("Work for AcmeCorp.\n", encoding="utf-8")
+        (plain / "b.md").write_text("Nothing here.\n", encoding="utf-8")
+        self.assertEqual(leakcheck.scan(plain, leakcheck.load_terms()), ["docs/a.md"])
+
     def test_tracked_files_whole_word_case_insensitive(self) -> None:
         self.commit("a.md", "Work for acmecorp.\n")
         self.commit("b.md", "The acmecorporation is unrelated.\n")
