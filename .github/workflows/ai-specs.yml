@@ -1,4 +1,4 @@
-# ai-specs:workflow version=0.2.1
+# ai-specs:workflow version=0.2.2
 # Managed by ai-specs (`ai_specs.py init`). Change the kit and re-run init instead of editing this file.
 # Required checks on develop, pre-production and production: ai-specs, gate; on develop also approval.
 name: ai-specs

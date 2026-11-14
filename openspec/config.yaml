@@ -1,4 +1,4 @@
-# ai-specs:kit version=0.2.1 prefix=ASP
+# ai-specs:kit version=0.2.2 prefix=ASP
 # Managed by ai-specs (`ai_specs.py init`). Change the kit and re-run init instead of editing this file.
 schema: spec-driven
 

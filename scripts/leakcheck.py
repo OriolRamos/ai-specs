@@ -42,6 +42,16 @@ def _git(repo: Path, *args: str) -> str:
     return res.stdout
 
 
+def _files(repo: Path) -> list[str]:
+    """Tracked files of a git work tree; every file outside `.git` when the folder is not one (a fresh kit target)."""
+    inside = subprocess.run(["git", "-C", str(repo), "rev-parse", "--is-inside-work-tree"], capture_output=True,
+                            text=True, check=False)
+    if inside.returncode == 0 and inside.stdout.strip() == "true":
+        return [rel for rel in _git(repo, "ls-files", "-z").split("\0") if rel]
+    return sorted(p.relative_to(repo).as_posix() for p in repo.rglob("*")
+                  if p.is_file() and ".git" not in p.relative_to(repo).parts)
+
+
 def scan(repo: Path, terms: list[str], rev_range: str | None = None) -> list[str]:
     """Files whose tracked content (or whose lines added in `rev_range`) contain a term. Sorted, no duplicates."""
     rx = pattern(terms)
@@ -56,7 +66,7 @@ def scan(repo: Path, terms: list[str], rev_range: str | None = None) -> list[str
             elif line.startswith("+") and not line.startswith("+++") and current and rx.search(line):
                 hits.add(current)
         return sorted(hits)
-    for rel in filter(None, _git(repo, "ls-files", "-z").split("\0")):
+    for rel in _files(repo):
         path = repo / rel
         try:
             data = path.read_bytes()
