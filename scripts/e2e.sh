@@ -43,6 +43,10 @@ Callers need a greeting.
 - No auth and no new configuration options.
 MD
 cat > "$C/specs/greeting/spec.md" <<'MD'
+## Purpose
+
+Greets every caller by name so all clients show the same predictable text.
+
 ## ADDED Requirements
 
 ### Requirement: EE-001 — Greeting by name
@@ -69,6 +73,8 @@ step "digest is stable across ticks and survives archive"
 D1="$("${AI[@]}" digest . add-greeting)"
 "${OS[@]}" archive add-greeting --yes >/dev/null
 grep -q "Proof:" openspec/specs/greeting/spec.md
+"${OS[@]}" validate --all --strict >/dev/null || { echo "validate --all --strict failed after archive" >&2; exit 1; }
+echo "validate --all --strict after archive: ok"
 D2="$("${AI[@]}" digest . add-greeting)"
 [ "$D1" = "$D2" ] || { echo "digest changed after archive: $D1 vs $D2" >&2; exit 1; }
 
@@ -92,6 +98,13 @@ typed = Path(sys.argv[2], "typed").read_text().strip()
 approval.approve(Path("."), 1, ask=lambda q: typed, is_tty=lambda: True, say=lambda m: None)
 PY
 "${AI[@]}" check-approval . --pr 3
+python3 - "$WORK/gh.json" <<'PY'
+import json, sys
+state = json.load(open(sys.argv[1]))
+state["pulls"]["4"] = {"body": "Back-merge (Refs #1)", "head": {"ref": "hotfix/1-crash"}}
+json.dump(state, open(sys.argv[1], "w"))
+PY
+"${AI[@]}" check-approval . --pr 4 >/dev/null && echo "hotfix back-merge resolves its issue from the branch"
 
 step "contract conformance (real validators; set AI_SPECS_E2E_OFFLINE=1 to skip without network)"
 "${AI[@]}" contract new . greeting --kind jsonschema >/dev/null

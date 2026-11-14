@@ -218,6 +218,16 @@ class CheckTest(GhFixture):
         self.approve()
         self.assertEqual(self.run_check("12")[0], 0)
 
+    def test_issue_from_branch_name(self) -> None:
+        self.approve()
+        self.state = self.load()
+        self.state["pulls"]["8"] = {"body": "Back-merge of the hotfix (Refs #12)", "head": {"ref": "hotfix/12-crash"}}
+        self.save()
+        self.assertEqual(self.run_check("--pr", "8")[0], 0)
+        self.state["pulls"]["9"] = {"body": "", "head": {"ref": "feature/whatever"}}
+        self.save()
+        self.assertEqual(self.run_check("--pr", "9")[0], 1)
+
     def test_pr_must_close_exactly_one_issue(self) -> None:
         self.state["pulls"]["7"]["body"] = "No link here"
         self.save()

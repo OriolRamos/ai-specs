@@ -1,4 +1,4 @@
-# ai-specs:workflow version=0.2.0
+# ai-specs:workflow version=0.2.1
 # Managed by ai-specs (`ai_specs.py init`). Change the kit and re-run init instead of editing this file.
 # Required checks on develop, pre-production and production: ai-specs, gate; on develop also approval.
 name: ai-specs
@@ -34,7 +34,12 @@ jobs:
         run: python3 scripts/ai_specs.py contract check .
 
   approval:
-    if: github.event_name == 'pull_request' && (github.base_ref == 'develop' || startsWith(github.head_ref, 'hotfix/'))
+    # Dependency bots skip only this job (a required job skipped by its `if` reports success); ai-specs and gate still run.
+    if: >-
+      github.event_name == 'pull_request'
+      && (github.base_ref == 'develop' || startsWith(github.head_ref, 'hotfix/'))
+      && github.event.pull_request.user.login != 'dependabot[bot]'
+      && github.event.pull_request.user.login != 'renovate[bot]'
     runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ github.token }}

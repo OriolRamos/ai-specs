@@ -1,3 +1,7 @@
+## Purpose
+
+Defines the checks that must pass before a change merges, from the repo's own gate to a rehearsal of the whole flow.
+
 ## ADDED Requirements
 
 ### Requirement: ASP-060 — One gate per repo

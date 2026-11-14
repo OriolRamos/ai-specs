@@ -1,3 +1,7 @@
+## Purpose
+
+Maps a multi-repo product (modules, capabilities, interfaces, data) so the impact of any change can be computed.
+
 ## ADDED Requirements
 
 ### Requirement: ASP-050 — Product platform repo and catalog

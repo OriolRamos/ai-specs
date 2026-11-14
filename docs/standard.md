@@ -88,6 +88,9 @@ In a product with a catalog, the Change impact table starts from `ai-specs impac
 
 ## 4. Delta specs (`specs/<capability>/spec.md`)
 
+- Every delta spec starts with **`## Purpose`** (at least 50 characters). OpenSpec writes it into the living spec when
+  the capability is new and ignores it otherwise; `openspec validate --strict` rejects a missing or shorter one, so
+  `lint` requires it for new capabilities.
 - One **observable** behaviour per Requirement, with **SHALL** or **MUST**.
 - Title: `### Requirement: <PREFIX>-NNN — <name>`. The id is unique in the repo and never reused or renumbered.
 - At least one `#### Scenario:` with **GIVEN / WHEN / THEN**. THEN states an exact **reference result**.

@@ -131,12 +131,22 @@ def change_of(issue_body: str) -> str:
     raise ApprovalError("the issue has no ai-specs change block (create it with /hq-spec)", 2)
 
 
+BRANCH_ISSUE_RE = re.compile(r"^(?:change|hotfix)/(\d+)-")
+
+
 def issue_of_pr(repo: Path, pr: int) -> int:
-    body = (ghcli.pull(repo, pr) or {}).get("body") or ""
-    found = CLOSES_RE.findall(body)
-    if len(set(found)) != 1:
-        raise ApprovalError(f"PR #{pr} must close exactly one issue ('Closes #<n>'), found {sorted(set(found)) or 'none'}")
-    return int(found[0])
+    """`Closes #n` (exactly one) in the body, else the n of a `change/<n>-…` or `hotfix/<n>-…` head branch (ASP-024)."""
+    data = ghcli.pull(repo, pr) or {}
+    found = sorted(set(CLOSES_RE.findall(data.get("body") or "")))
+    if len(found) == 1:
+        return int(found[0])
+    if len(found) > 1:
+        raise ApprovalError(f"PR #{pr} closes several issues {found}: one change per PR")
+    head = ((data.get("head") or {}).get("ref")) or ""
+    match = BRANCH_ISSUE_RE.match(head)
+    if match:
+        return int(match.group(1))
+    raise ApprovalError(f"PR #{pr} must close one issue ('Closes #<n>') or come from change/<n>-… or hotfix/<n>-…")
 
 
 def _head(repo: Path) -> str:

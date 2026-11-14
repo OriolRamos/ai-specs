@@ -15,7 +15,7 @@ This repo is the ai-specs standard and kit (see `README.md` and `docs/standard.m
 - Code, comments, commits and docs in English. Conventional Commits. Branch `feat/<slug>` → PR to `main`.
 
 <!-- ai-specs:begin (managed by `ai_specs.py init`; change the ai-specs kit, not this block) -->
-## Specs, approval and branches (ai-specs 0.2.0)
+## Specs, approval and branches (ai-specs 0.2.1)
 
 This repo follows the ai-specs standard on top of OpenSpec and GitHub:
 

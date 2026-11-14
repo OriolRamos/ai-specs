@@ -1,4 +1,4 @@
-# ai-specs:kit version=0.2.0 prefix=ASP
+# ai-specs:kit version=0.2.1 prefix=ASP
 # Managed by ai-specs (`ai_specs.py init`). Change the kit and re-run init instead of editing this file.
 schema: spec-driven
 
@@ -21,6 +21,7 @@ rules:
     - 'In a product with a platform catalog, start the Change impact table from the output of ai-specs impact.'
     - 'Never reserve a version and never record status, owners or approvals here.'
   specs:
+    - 'Start every delta spec with "## Purpose" (at least 50 characters): OpenSpec uses it when the capability is new.'
     - 'One observable behaviour per Requirement using SHALL or MUST, titled "ASP-NNN — name"; keep existing ids.'
     - 'At least one Scenario per Requirement with GIVEN, WHEN and THEN, where THEN states an exact reference result.'
     - 'End every Scenario with a "- **Proof:**" line naming the command or test that demonstrates it and what counts as a pass.'
