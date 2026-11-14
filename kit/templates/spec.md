@@ -1,3 +1,7 @@
+## Purpose
+
+TODO: what this capability is for, in one or two sentences (at least 50 characters).
+
 ## ADDED Requirements
 
 ### Requirement: {{PREFIX}}-NNN — TODO name

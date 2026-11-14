@@ -1,3 +1,7 @@
+## Purpose
+
+Gives every kind of project knowledge one canonical place so decisions, behaviour and history are never lost.
+
 ## ADDED Requirements
 
 ### Requirement: ASP-070 — One canonical place per kind of memory

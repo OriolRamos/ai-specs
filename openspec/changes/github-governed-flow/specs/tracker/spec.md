@@ -1,3 +1,7 @@
+## Purpose
+
+Makes GitHub issues the visible source of truth for the state of every change, from proposal to release.
+
 ## ADDED Requirements
 
 ### Requirement: ASP-010 — One issue per change

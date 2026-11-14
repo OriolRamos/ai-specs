@@ -16,7 +16,11 @@ sys.path.insert(0, str(KIT / "scripts"))
 
 import ai_specs  # noqa: E402
 
-GOOD_SPEC = """## ADDED Requirements
+GOOD_SPEC = """## Purpose
+
+Greets every caller by name so all clients show the same predictable text.
+
+## ADDED Requirements
 
 ### Requirement: LB-001 — Greeting by name
 The service SHALL return a greeting that contains the caller's name.
@@ -191,6 +195,15 @@ class WorkflowTest(RepoTest):
         run("init", str(self.repo), "--prefix", "LB", "--kit-repo", "someone/ai-specs")  # gate kept on re-init
         self.assertIn("make verify", (self.repo / ".github" / "workflows" / "ai-specs.yml").read_text(encoding="utf-8"))
 
+    def test_dependency_bots_skip_only_approval(self) -> None:
+        run("init", str(self.repo), "--prefix", "LB", "--owner", "o1", "--kit-repo", "o/ai-specs", "--gate", "true")
+        text = (self.repo / ".github" / "workflows" / "ai-specs.yml").read_text(encoding="utf-8")
+        approval = text.split("  approval:", 1)[1].split("\n  gate:", 1)[0]
+        for bot in ("dependabot[bot]", "renovate[bot]"):
+            self.assertIn(f"github.event.pull_request.user.login != '{bot}'", approval)
+            self.assertEqual(text.count(bot), 1)  # only in the approval job
+        self.assertNotIn("user.login", text.split("  approval:", 1)[0])
+
     def test_without_a_gate_the_gate_job_fails_loudly(self) -> None:
         run("init", str(self.repo), "--prefix", "LB", "--owner", "owner1", "--kit-repo", "someone/ai-specs")
         text = (self.repo / ".github" / "workflows" / "ai-specs.yml").read_text(encoding="utf-8")
@@ -223,3 +236,32 @@ class CompatibilityTest(RepoTest):
         self.init()
         (self.repo / "openspec" / "roles.yaml").unlink()
         self.assertTrue(any("roles.yaml is missing" in e for e in ai_specs.cmd_lint(self.repo, [])))
+
+
+class PurposeTest(RepoTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.init()
+
+    def test_new_capability_needs_a_long_enough_purpose(self) -> None:
+        folder = self.fill()
+        spec = folder / "specs" / "greeting" / "spec.md"
+        text = spec.read_text(encoding="utf-8")
+        spec.write_text("## ADDED" + text.split("## ADDED", 1)[1], encoding="utf-8")
+        errors = ai_specs.cmd_lint(self.repo, [])
+        self.assertTrue(any("new capability needs a ## Purpose of at least 50 characters" in e for e in errors), errors)
+        spec.write_text("## Purpose\n\nToo short.\n\n" + spec.read_text(encoding="utf-8"), encoding="utf-8")
+        self.assertTrue(any("## Purpose" in e for e in ai_specs.cmd_lint(self.repo, [])))
+
+    def test_existing_capability_needs_no_purpose(self) -> None:
+        folder = self.fill()
+        living = self.repo / "openspec" / "specs" / "greeting"
+        living.mkdir(parents=True)
+        (living / "spec.md").write_text("# greeting\n", encoding="utf-8")
+        spec = folder / "specs" / "greeting" / "spec.md"
+        spec.write_text("## ADDED" + spec.read_text(encoding="utf-8").split("## ADDED", 1)[1], encoding="utf-8")
+        self.assertEqual(ai_specs.cmd_lint(self.repo, []), [])
+
+    def test_scaffold_template_carries_a_purpose(self) -> None:
+        run("scaffold", str(self.repo), "x-y", "--size", "S", "--capability", "cap")
+        self.assertTrue((self.repo / "openspec/changes/x-y/specs/cap/spec.md").read_text().startswith("## Purpose"))

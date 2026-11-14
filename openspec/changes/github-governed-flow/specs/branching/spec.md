@@ -1,3 +1,7 @@
+## Purpose
+
+Keeps develop, pre-production and production protected, released by people and traceable from issue to tag.
+
 ## ADDED Requirements
 
 ### Requirement: ASP-030 — Three protected branches

@@ -1,13 +1,13 @@
 ## 0. Approval
 
-- [ ] 0.1 [owner] Approve the scope (the audit's six defects and four minor ones, as listed in the proposal) — test first: n/a — proof: `openspec validate audit-fixes --strict && python3 scripts/ai_specs.py lint . audit-fixes` green (human gate)
+- [x] 0.1 [owner] Approve the scope (the audit's six defects and four minor ones, as listed in the proposal) — test first: n/a — proof: `openspec validate audit-fixes --strict && python3 scripts/ai_specs.py lint . audit-fixes` green (human gate)
 
 ## 1. ai-specs kit 0.2.1 (ai-specs repo)
 
-- [ ] 1.1 Purpose: lint rule for new capabilities, scaffold template, kit rule, standard text; Purpose added to the seven deltas of github-governed-flow and its new digest recorded — test first: `tests/test_ai_specs.py::PurposeTest` — proof: `python3 -m unittest tests.test_ai_specs.PurposeTest && python3 scripts/ai_specs.py lint .`
-- [ ] 1.2 `issue_of_pr` falls back to `change/<n>-` and `hotfix/<n>-` head branches — test first: `tests/test_approval.py::CheckTest::test_issue_from_branch_name` — proof: `python3 -m unittest tests.test_approval`
-- [ ] 1.3 Workflow: approval job skipped for dependabot and renovate PR authors — test first: `tests/test_ai_specs.py::WorkflowTest::test_dependency_bots_skip_only_approval` — proof: `python3 -m unittest tests.test_ai_specs.WorkflowTest`
-- [ ] 1.4 e2e: `validate --all --strict` after archive, hotfix-branch approval; ADR index; VERSION 0.2.1 — test first: n/a — proof: `bash scripts/e2e.sh`
+- [x] 1.1 Purpose: lint rule for new capabilities, scaffold template, kit rule, standard text; Purpose added to the seven deltas of github-governed-flow and its new digest recorded — test first: `tests/test_ai_specs.py::PurposeTest` — proof: `python3 -m unittest tests.test_ai_specs.PurposeTest && python3 scripts/ai_specs.py lint .`
+- [x] 1.2 `issue_of_pr` falls back to `change/<n>-` and `hotfix/<n>-` head branches — test first: `tests/test_approval.py::CheckTest::test_issue_from_branch_name` — proof: `python3 -m unittest tests.test_approval`
+- [x] 1.3 Workflow: approval job skipped for dependabot and renovate PR authors — test first: `tests/test_ai_specs.py::WorkflowTest::test_dependency_bots_skip_only_approval` — proof: `python3 -m unittest tests.test_ai_specs.WorkflowTest`
+- [x] 1.4 e2e: `validate --all --strict` after archive, hotfix-branch approval; ADR index; VERSION 0.2.1 — test first: n/a — proof: `bash scripts/e2e.sh`
 
 ## 2. ai-hq
 

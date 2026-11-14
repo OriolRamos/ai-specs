@@ -298,6 +298,12 @@ def lint_specs(spec: Path, rel: str, prefix: str, errors: list[str]) -> None:
     close_scenario()
 
 
+def purpose_text(text: str) -> str:
+    """The text under `## Purpose` (up to the next `## ` heading), without surrounding whitespace."""
+    match = re.search(r"^## Purpose\s*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+    return match.group(1).strip() if match else ""
+
+
 def lint_change(repo: Path, change: str, prefix: str) -> list[str]:
     errors: list[str] = []
     folder = repo / "openspec" / "changes" / change
@@ -341,6 +347,13 @@ def lint_change(repo: Path, change: str, prefix: str) -> list[str]:
             errors.append(f"{base}/tasks.md: no checkbox tasks")
     for spec in sorted((folder / "specs").rglob("spec.md")) if (folder / "specs").is_dir() else []:
         lint_specs(spec, spec.relative_to(repo).as_posix(), prefix, errors)
+        capability = spec.parent.relative_to(folder / "specs").as_posix()
+        delta = spec.read_text(encoding="utf-8")
+        if "## ADDED Requirements" in delta and not (repo / "openspec" / "specs" / capability / "spec.md").exists():
+            purpose = purpose_text(delta)
+            if len(purpose) < 50:
+                errors.append(f"{spec.relative_to(repo).as_posix()}: new capability needs a ## Purpose of at least "
+                              f"50 characters (OpenSpec writes it into the living spec at archive)")
     for path in sorted(folder.rglob("*.md")):
         for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if TODO_RE.search(line):

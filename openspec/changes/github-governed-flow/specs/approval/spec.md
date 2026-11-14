@@ -1,3 +1,7 @@
+## Purpose
+
+Binds work to a human approval of the exact change scope and makes every path that builds or merges code check it.
+
 ## ADDED Requirements
 
 ### Requirement: ASP-020 — Change digest

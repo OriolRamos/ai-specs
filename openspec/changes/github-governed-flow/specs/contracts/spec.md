@@ -1,3 +1,7 @@
+## Purpose
+
+Keeps machine contracts between modules versioned, immutable once released and checked by conformance tests in CI.
+
 ## ADDED Requirements
 
 ### Requirement: ASP-040 — Versioned contract layout
