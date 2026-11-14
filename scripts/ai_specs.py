@@ -20,6 +20,14 @@ Commands:
       Human approval of the change linked to the issue (ASP-022). Run it yourself, in your own terminal.
   check-approval <repo> (<issue> | --pr <n>)
       Exit 0 when the approvers approved the current digest, 1 when not or stale, 2 when it cannot check (ASP-023).
+  contract new <repo> <name> --kind jsonschema|openapi · contract check <repo>
+      Versioned contract skeleton; conformance of every contract (pinned validators through npx) (ASP-040/041).
+  catalog check <platform> · impact <platform> <id>
+      Product catalog of a platform repo; what an id touches (ASP-050/051).
+  adr new <repo> "<title>"
+      Next numbered ADR in docs/adr/ from the template (ASP-070).
+Init options: --owner (roles.yaml), --gate "<command>" (CI gate job), --kit-repo owner/ai-specs (CI checkout),
+--platform [--product <id>] (a product platform repo: catalog, shared contracts, cross-repo ADRs).
 """
 from __future__ import annotations
 
@@ -27,6 +35,7 @@ import argparse
 import json
 import re
 import shutil
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from datetime import date
@@ -34,6 +43,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # also when run through the ~/.local/bin symlink
 import approval  # noqa: E402
+import catalog  # noqa: E402
+import contracts  # noqa: E402
 
 KIT = Path(__file__).resolve().parent.parent
 VERSION = (KIT / "VERSION").read_text(encoding="utf-8").strip()
@@ -108,7 +119,32 @@ def write_block(target: Path, block: str) -> None:
     target.write_text(text if text.endswith("\n") else text + "\n", encoding="utf-8")
 
 
-def cmd_init(repo: Path, prefix: str, project: str, language: str, owner: str | None = None) -> list[str]:
+NO_GATE = 'echo "Declare this repo\'s gate: ai_specs.py init . --prefix <P> --gate \"<command>\"" && exit 1'
+ADR_TEMPLATE = """# ADR-{number:04d} · {title}
+
+- **Date:** {date} · **Status:** proposed
+
+## Context
+TODO: the forces at play and why a decision is needed now.
+
+## Decision
+TODO: what was decided, in one paragraph.
+
+## Consequences
+TODO: what becomes easier, what becomes harder, and what to watch.
+"""
+
+
+def kit_repo_default() -> str:
+    res = subprocess.run(["git", "-C", str(KIT), "remote", "get-url", "origin"], capture_output=True, text=True,
+                         check=False)
+    match = re.search(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$", res.stdout.strip())
+    return match.group(1) if match else ""
+
+
+def cmd_init(repo: Path, prefix: str, project: str, language: str, owner: str | None = None,
+             gate: str | None = None, kit_repo: str | None = None, platform: bool = False,
+             product: str | None = None) -> list[str]:
     if not PREFIX_RE.match(prefix):
         raise AiSpecsError(f"prefix '{prefix}' must be 2-10 upper-case letters or digits, starting with a letter")
     state = read_state(repo)
@@ -140,7 +176,48 @@ def cmd_init(repo: Path, prefix: str, project: str, language: str, owner: str | 
     target = next((repo / n for n in ("AGENTS.md", "CLAUDE.md") if (repo / n).is_file()), repo / "AGENTS.md")
     write_block(target, render((KIT / "kit" / "agents-block.md").read_text(encoding="utf-8"), **values))
     done.append(f"{target.name} (ai-specs block)")
+    workflow = repo / ".github" / "workflows" / "ai-specs.yml"
+    old_gate = WORKFLOW_GATE_RE.search(workflow.read_text(encoding="utf-8")) if workflow.exists() else None
+    gate_cmd = gate or (old_gate.group(1).strip() if old_gate else NO_GATE)
+    kit_ref = kit_repo or kit_repo_default() or ("self" if repo.resolve() == KIT.resolve() else "")
+    if not kit_ref:
+        raise AiSpecsError("cannot tell the ai-specs GitHub repo for CI: pass --kit-repo <owner>/<repo>")
+    workflow.parent.mkdir(parents=True, exist_ok=True)
+    text = render((KIT / "kit" / "workflow.yml.tmpl").read_text(encoding="utf-8"), VERSION=VERSION,
+                  KIT_REPO=kit_ref, OPENSPEC_VERSION=OPENSPEC_VERSION, GATE=gate_cmd)
+    if repo.resolve() == KIT.resolve():  # the kit checks itself with the code of the same commit, not a release tag
+        text = re.sub(r"      # kit-checkout:begin\n.*?      # kit-checkout:end\n", "", text, flags=re.S)
+        text = text.replace(".ai-specs-kit/scripts/", "scripts/")
+    workflow.write_text(text, encoding="utf-8")
+    done.append(".github/workflows/ai-specs.yml" + ("" if gate_cmd != NO_GATE else " (no gate yet: pass --gate)"))
+    if platform:
+        product_json = repo / "catalog" / "product.json"
+        if not product_json.exists():
+            product_json.parent.mkdir(parents=True, exist_ok=True)
+            name = product or re.sub(r"-platform$", "", repo.name)
+            product_json.write_text(json.dumps(catalog.skeleton(name), indent=2) + "\n", encoding="utf-8")
+            done.append("catalog/product.json")
+        for sub_dir in ("contracts", "docs/adr"):
+            folder = repo / sub_dir
+            folder.mkdir(parents=True, exist_ok=True)
+            if not any(folder.iterdir()):
+                (folder / ".gitkeep").write_text("", encoding="utf-8")
+        done.append("contracts/, docs/adr/ (platform)")
     return done
+
+
+WORKFLOW_GATE_RE = re.compile(r"- name: Repo gate\n\s+run: \|\n\s+(.+)\n?")
+
+
+def cmd_adr(repo: Path, title: str) -> Path:
+    folder = repo / "docs" / "adr"
+    folder.mkdir(parents=True, exist_ok=True)
+    numbers = [int(m.group(1)) for p in folder.glob("*.md") if (m := re.match(r"(\d{4})-", p.name))]
+    number = max(numbers, default=0) + 1
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:60]
+    path = folder / f"{number:04d}-{slug}.md"
+    path.write_text(ADR_TEMPLATE.format(number=number, title=title, date=date.today().isoformat()), encoding="utf-8")
+    return path
 
 
 # ---------------------------------------------------------------- scaffold
@@ -278,6 +355,7 @@ def cmd_lint(repo: Path, changes: list[str]) -> list[str]:
     errors: list[str] = []
     if version_tuple(state.version) >= (0, 2, 0):
         errors += approval.roles_errors(repo)
+        errors += contracts.released_changes(repo)
     for change in changes or state.changes:
         errors += lint_change(repo, change, state.prefix)
     return errors
@@ -313,6 +391,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--project")
     p.add_argument("--language", default="English")
     p.add_argument("--owner", help="GitHub login written to openspec/roles.yaml when it does not exist yet")
+    p.add_argument("--gate", help="the repo's single gate command, run by the CI gate job")
+    p.add_argument("--kit-repo", help="<owner>/<repo> of ai-specs for the CI checkout (default: this kit's origin)")
+    p.add_argument("--platform", action="store_true", help="a product platform repo: catalog, contracts, ADRs")
+    p.add_argument("--product", help="product id for the platform catalog (default: repo name without -platform)")
     p = sub.add_parser("scaffold")
     p.add_argument("repo", type=Path)
     p.add_argument("change")
@@ -324,6 +406,21 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("doctor")
     p.add_argument("repo", type=Path)
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("contract")
+    p.add_argument("action", choices=("new", "check"))
+    p.add_argument("repo", type=Path)
+    p.add_argument("name", nargs="?")
+    p.add_argument("--kind", choices=("jsonschema", "openapi"), default="jsonschema")
+    p = sub.add_parser("catalog")
+    p.add_argument("action", choices=("check",))
+    p.add_argument("repo", type=Path)
+    p = sub.add_parser("impact")
+    p.add_argument("repo", type=Path)
+    p.add_argument("target")
+    p = sub.add_parser("adr")
+    p.add_argument("action", choices=("new",))
+    p.add_argument("repo", type=Path)
+    p.add_argument("title")
     p = sub.add_parser("digest")
     p.add_argument("repo", type=Path)
     p.add_argument("change")
@@ -341,12 +438,41 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         if args.cmd == "init":
-            for item in cmd_init(repo, args.prefix, args.project or repo.name, args.language, args.owner):
+            for item in cmd_init(repo, args.prefix, args.project or repo.name, args.language, args.owner,
+                                 args.gate, args.kit_repo, args.platform, args.product):
                 print(f"[ok] {item}")
             print(f"next: {openspec_command(repo)} validate --all --strict")
         elif args.cmd == "scaffold":
             for item in cmd_scaffold(repo, args.change, args.size, args.capability):
                 print(f"[ok] {item}")
+        elif args.cmd == "contract" and args.action == "new":
+            if not args.name:
+                print("contract new needs a name", file=sys.stderr)
+                return 2
+            for item in contracts.new(repo, args.name, args.kind):
+                print(f"[ok] {item}")
+        elif args.cmd == "contract":
+            problems = contracts.check(repo)
+            for problem in problems:
+                print("ERROR", problem)
+            print(f"{len(contracts.versions(repo))} contract version(s), {len(problems)} problem(s)")
+            return 1 if problems else 0
+        elif args.cmd == "catalog":
+            problems = catalog.check(repo)
+            for problem in problems:
+                print("ERROR", problem)
+            print(f"{len(problems)} problem(s)")
+            return 1 if problems else 0
+        elif args.cmd == "impact":
+            found = catalog.impact(repo, args.target)
+            if not found:
+                print(f"nothing in the catalog references '{args.target}'")
+            for kind, items in found.items():
+                print(f"{kind}:")
+                for item in items:
+                    print(f"  - {item}")
+        elif args.cmd == "adr":
+            print(f"[ok] {cmd_adr(repo, args.title).relative_to(repo)}")
         elif args.cmd == "digest":
             print(approval.digest(approval.change_folder(repo, args.change)))
         elif args.cmd == "approve":
@@ -383,6 +509,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ai-specs: {exc}", file=sys.stderr)
         return exc.code
     except approval.ghcli.GhError as exc:
+        print(f"ai-specs: {exc}", file=sys.stderr)
+        return 2
+    except contracts.ContractError as exc:
+        print(f"ai-specs: {exc}", file=sys.stderr)
+        return exc.code
+    except catalog.CatalogError as exc:
         print(f"ai-specs: {exc}", file=sys.stderr)
         return 2
     return 0

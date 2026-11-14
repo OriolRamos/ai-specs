@@ -1,72 +1,100 @@
-# ai-specs · How a repo specifies, builds and closes every change
+# ai-specs · How a repo specifies, approves, builds, releases and remembers every change
 
 ai-specs is a **standard plus a kit** that you apply to a repo. It runs on [OpenSpec](https://github.com/Fission-AI/OpenSpec)
-(MIT, pinned to 1.13.1). It fuses two things:
-- **Governed platform specs:** living specs, deltas, stable requirement ids, contracts, approval of a frozen scope,
-  and archive in the same PR.
-- **Agent-driven delivery:** a proof for every scenario, "not to add", prior art, change impact, tasks sized for a
-  fresh agent context, and the ceremony scaled to the size of the change.
+(MIT, pinned to 1.13.1) and GitHub. It fuses:
 
-The result is that a repo keeps its own memory (what it does today, why, and how each behaviour is proved), and
-several people or agents can work on it without a private tool.
+- **Governed platform work:**
+  - living specs, deltas and stable ids;
+  - an issue → spec → commit → PR → release chain;
+  - human approval of a frozen scope;
+  - `develop → pre-production → production`;
+  - versioned contracts with conformance, a product catalog with impact, one gate per repo.
+- **Agent-driven delivery:** a proof for every scenario, "not to add", prior art, change impact, tasks sized for a fresh
+  agent context, and ceremony scaled to the size of the change.
 
 | Layer | Repo | Role |
 |---|---|---|
 | Method | ai-skills | How to debug and review (neutral skills) |
-| **Standard** | **ai-specs** | **How a change is specified, proved and closed (this repo)** |
+| **Standard** | **ai-specs** | **How a change is specified, approved, proved, released and remembered (this repo)** |
 | Engine | ai-hq | Plans, runs and verifies changes autonomously across repos (optional) |
-| State | a tracker | Backlog, owners, status, approvals: AI-HQ workspace, GitHub Issues or Azure Boards |
+| State | GitHub | Issues, approvals, PRs, releases |
 
-Read the standard first: [docs/standard.md](docs/standard.md). Why it is built this way: [docs/adr/0001-standard-and-kit.md](docs/adr/0001-standard-and-kit.md).
+Read the standard first: [docs/standard.md](docs/standard.md). Decisions: [docs/adr/](docs/adr/).
 
 ## Apply it to a repo
 
 ```bash
-python3 <ai-specs>/scripts/ai_specs.py doctor <repo>               # what process the repo runs today
-python3 <ai-specs>/scripts/ai_specs.py init <repo> --prefix LB     # once: config, folders, AGENTS.md block
+ai-specs doctor <repo>                                   # what process the repo runs today
+ai-specs init <repo> --prefix LB --owner <github-login> --gate "<the repo's gate command>"
+ai-specs init <repo> --prefix SHOP --owner <login> --platform   # a product platform repo (catalog, contracts, ADRs)
 ```
 
-`init` writes `openspec/config.yaml` (the kit's rules, which OpenSpec passes to the agent for every artifact),
-creates `openspec/specs/` and `openspec/changes/`, and adds a managed block to the repo's `AGENTS.md` (or
-`CLAUDE.md`). Re-running it upgrades the repo to the current kit. It **refuses** a repo that already runs another
-process: an `openspec/config.yaml` not written by ai-specs, or an Azure DevOps process skill. Company repos keep
-their own process.
+`ai-specs` is `scripts/ai_specs.py`: AI-HQ links it to `~/.local/bin`, or you can run it with `python3`.
 
-Nothing is migrated. `openspec/specs/` fills up as changes are archived.
+`init` writes the following:
+- **`openspec/config.yaml`:** the kit's rules, which OpenSpec passes to the agent;
+- **`openspec/roles.yaml`:** the approvers, reviewers and releasers;
+- **the `openspec/specs/` and `openspec/changes/` folders;**
+- **a managed block in `AGENTS.md` or `CLAUDE.md`;**
+- **`.github/workflows/ai-specs.yml`:** the required checks `ai-specs`, `approval` and `gate`.
+
+Re-running it upgrades the repo to the current kit and keeps its gate. It **refuses** a repo that already runs
+another process. Nothing is migrated: `openspec/specs/` fills up as changes are archived.
+
+Branches, protections and labels on GitHub are applied by AI-HQ's `repo_setup.py`, or by hand following section 9 of
+the standard.
 
 ## A change, by hand
 
 ```bash
-openspec new change add-greeting                                     # or: npx -y @fission-ai/openspec@1.13.1 ...
-python3 <ai-specs>/scripts/ai_specs.py scaffold <repo> add-greeting --size S --capability greeting
-# fill proposal.md, specs/greeting/spec.md and tasks.md (replace every TODO)
-openspec validate add-greeting --strict
-python3 <ai-specs>/scripts/ai_specs.py lint <repo> add-greeting
-# implement task by task; when all are done and the repo's gate is green, in the same PR:
-openspec archive add-greeting --yes
+# 1. issue #12 with type:change, size:S, state:proposed; branch change/12-add-greeting from develop
+openspec new change add-greeting
+ai-specs scaffold . add-greeting --size S --capability greeting      # fill every TODO
+openspec validate add-greeting --strict && ai-specs lint . add-greeting
+git push; ai-specs digest . add-greeting                            # write the managed block on the issue
+# 2. the approver, in their own terminal:
+ai-specs approve . 12
+# 3. build: ai-specs check-approval . 12 must pass; commits "Refs #12"; tick tasks as proofs pass
+# 4. openspec archive add-greeting --yes; PR into develop with "Closes #12"; CI: ai-specs, approval, gate
 ```
 
-With AI-HQ, `/hq-spec`, `/hq-tickets` and `/hq-factory` do this for you when the repo runs ai-specs.
+With AI-HQ, `/hq-spec`, `/hq-approve`, `/hq-factory` and `/hq-ship` do these steps. The approval itself is always a
+person's.
+
+## Other commands
+
+| Command | Does |
+|---|---|
+| `ai-specs contract new <repo> <name> --kind jsonschema\|openapi` | contract `v1` skeleton with valid and invalid examples |
+| `ai-specs contract check <repo>` | conformance with pinned ajv / redocly through npx (`AI_SPECS_NPX` overrides the runner) |
+| `ai-specs catalog check <platform>` · `ai-specs impact <platform> <id>` | product catalog checks; what an id touches |
+| `ai-specs adr new <repo> "<title>"` | next numbered ADR in `docs/adr/` |
+| `ai-specs check-approval <repo> <issue>\|--pr <n>` | 0 approved, 1 missing or stale, 2 cannot check |
 
 ## Changing the kit without breaking repos
 
-- Repos record the kit version in `openspec/config.yaml`. `doctor` says when a repo is outdated, and `init`
-  upgrades it.
-- New lint rules must accept everything that is already archived. Lint only checks **active** changes, never
-  `archive/` or `specs/`.
-- `kit/config.yaml.tmpl` rules must be single-quoted YAML scalars. OpenSpec ignores a config it cannot parse, so
-  a test guards this.
-- Before merging: `python3 -m unittest discover -s tests` and `bash scripts/e2e.sh` (real OpenSpec CLI; CI runs
-  both). Bump `VERSION` whenever the kit changes.
+- **Versions.** Repos record the kit version in `openspec/config.yaml`. `doctor` says when a repo is outdated, and
+  `init` upgrades it.
+- **Rules.** New lint rules apply only from the kit version that introduces them, and lint only checks **active**
+  changes.
+- **YAML.** Rules in `kit/config.yaml.tmpl` must be single-quoted YAML scalars, because OpenSpec ignores a config it
+  cannot parse. A test guards this.
+- **Release tag.** Adopting repos check the kit out at tag `v<VERSION>` in CI, so a kit release must be tagged on
+  `production`.
+- **Before merging:** `python3 -m unittest discover -s tests` and `bash scripts/e2e.sh`. CI runs both as this repo's
+  gate.
 
 ## Layout
 
 ```
-docs/standard.md          the standard (what is required and why)
+docs/standard.md          the standard
 docs/adr/                 decisions about the standard
-kit/config.yaml.tmpl      OpenSpec config written into each repo
-kit/agents-block.md       managed block for the repo's AGENTS.md / CLAUDE.md
-kit/templates/            scaffold templates (design, tasks, spec)
-scripts/ai_specs.py       init · scaffold · lint · doctor (stdlib only)
-tests/                    CLI tests
+kit/                      config.yaml.tmpl, agents-block.md, workflow.yml.tmpl, templates/
+scripts/ai_specs.py       CLI: init · scaffold · lint · doctor · digest · approve · check-approval · contract ·
+                          catalog · impact · adr
+scripts/approval.py       digest, roles, approval      scripts/contracts.py   contracts
+scripts/catalog.py        platform catalog, impact     scripts/ghcli.py       the only GitHub access (gh)
+scripts/e2e.sh            end to end with the real OpenSpec CLI
+tests/                    unit tests (fake gh, fake validators)
+openspec/                 this repo's own specs and changes (prefix ASP)
 ```

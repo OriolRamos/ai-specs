@@ -1,0 +1,78 @@
+# ai-specs:workflow version={{VERSION}}
+# Managed by ai-specs (`ai_specs.py init`). Change the kit and re-run init instead of editing this file.
+# Required checks on develop, pre-production and production: ai-specs, gate; on develop also approval.
+name: ai-specs
+
+on:
+  pull_request:
+  push:
+    branches: [develop, pre-production, production]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  ai-specs:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # kit-checkout:begin
+      - uses: actions/checkout@v4
+        with:
+          repository: {{KIT_REPO}}
+          ref: v{{VERSION}}
+          path: .ai-specs-kit
+          token: ${{ secrets.AI_SPECS_TOKEN || github.token }}
+      # kit-checkout:end
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: OpenSpec strict validation
+        run: npx -y @fission-ai/openspec@{{OPENSPEC_VERSION}} validate --all --strict
+      - name: ai-specs lint
+        run: python3 .ai-specs-kit/scripts/ai_specs.py lint .
+      - name: Contract conformance
+        run: python3 .ai-specs-kit/scripts/ai_specs.py contract check .
+
+  approval:
+    if: github.event_name == 'pull_request' && (github.base_ref == 'develop' || startsWith(github.head_ref, 'hotfix/'))
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      # kit-checkout:begin
+      - uses: actions/checkout@v4
+        with:
+          repository: {{KIT_REPO}}
+          ref: v{{VERSION}}
+          path: .ai-specs-kit
+          token: ${{ secrets.AI_SPECS_TOKEN || github.token }}
+      # kit-checkout:end
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Approved scope matches this PR
+        run: python3 .ai-specs-kit/scripts/ai_specs.py check-approval . --pr ${{ github.event.pull_request.number }}
+
+  gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Repo gate
+        run: |
+          {{GATE}}

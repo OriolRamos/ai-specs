@@ -51,7 +51,7 @@ class RepoTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def init(self) -> None:
-        code, out = run("init", str(self.repo), "--prefix", "LB", "--owner", "owner1")
+        code, out = run("init", str(self.repo), "--prefix", "LB", "--owner", "owner1", "--kit-repo", "o/ai-specs")
         self.assertEqual(code, 0, out)
 
     def fill(self, change: str = "add-greeting", size: str = "S") -> Path:
@@ -170,3 +170,56 @@ class DoctorTest(RepoTest):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WorkflowTest(RepoTest):
+    def test_workflow_has_three_jobs_the_gate_and_least_privileges(self) -> None:
+        code, out = run("init", str(self.repo), "--prefix", "LB", "--owner", "owner1", "--gate", "make verify",
+                        "--kit-repo", "someone/ai-specs")
+        self.assertEqual(code, 0, out)
+        text = (self.repo / ".github" / "workflows" / "ai-specs.yml").read_text(encoding="utf-8")
+        for job in ("  ai-specs:", "  approval:", "  gate:"):
+            self.assertIn(job, text)
+        self.assertIn("        run: |\n          make verify\n", text)
+        perms = text.split("permissions:\n", 1)[1].split("\n\n", 1)[0]
+        self.assertEqual(sorted(line.strip() for line in perms.splitlines()),
+                         ["contents: read", "issues: read", "pull-requests: read"])
+        self.assertIn("repository: someone/ai-specs", text)
+        self.assertIn(f"ref: v{ai_specs.VERSION}", text)
+        self.assertIn("check-approval . --pr", text)
+        self.assertNotRegex(text, r"\{\{[A-Z_]+\}\}")  # every kit placeholder replaced (GitHub's ${{ }} stays)
+        run("init", str(self.repo), "--prefix", "LB", "--kit-repo", "someone/ai-specs")  # gate kept on re-init
+        self.assertIn("make verify", (self.repo / ".github" / "workflows" / "ai-specs.yml").read_text(encoding="utf-8"))
+
+    def test_without_a_gate_the_gate_job_fails_loudly(self) -> None:
+        run("init", str(self.repo), "--prefix", "LB", "--owner", "owner1", "--kit-repo", "someone/ai-specs")
+        text = (self.repo / ".github" / "workflows" / "ai-specs.yml").read_text(encoding="utf-8")
+        self.assertIn("Declare this repo", text)
+        self.assertIn("exit 1", text)
+
+
+class AdrTest(RepoTest):
+    def test_numbered_adrs_from_the_template(self) -> None:
+        code, out = run("adr", "new", str(self.repo), "Use develop as default branch")
+        self.assertEqual(code, 0, out)
+        first = self.repo / "docs" / "adr" / "0001-use-develop-as-default-branch.md"
+        text = first.read_text(encoding="utf-8")
+        for section in ("**Status:**", "## Context", "## Decision", "## Consequences"):
+            self.assertIn(section, text)
+        run("adr", "new", str(self.repo), "Second one")
+        self.assertTrue((self.repo / "docs" / "adr" / "0002-second-one.md").is_file())
+
+
+class CompatibilityTest(RepoTest):
+    def test_a_kit_01_repo_without_roles_still_lints_clean(self) -> None:
+        self.init()
+        config = self.repo / "openspec" / "config.yaml"
+        config.write_text(config.read_text(encoding="utf-8").replace(f"version={ai_specs.VERSION}", "version=0.1.0"),
+                          encoding="utf-8")
+        (self.repo / "openspec" / "roles.yaml").unlink()
+        self.assertEqual(ai_specs.cmd_lint(self.repo, []), [])
+
+    def test_a_kit_02_repo_needs_roles(self) -> None:
+        self.init()
+        (self.repo / "openspec" / "roles.yaml").unlink()
+        self.assertTrue(any("roles.yaml is missing" in e for e in ai_specs.cmd_lint(self.repo, [])))

@@ -30,7 +30,7 @@ class GhFixture(unittest.TestCase):
         self.repo.mkdir()
         (self.repo / "AGENTS.md").write_text("# Repo\n", encoding="utf-8")
         with redirect_stdout(io.StringIO()):
-            ai_specs.cmd_init(self.repo, "LB", "repo", "English", owner="owner1")
+            ai_specs.cmd_init(self.repo, "LB", "repo", "English", owner="owner1", kit_repo="o/ai-specs")
         ai_specs.cmd_scaffold(self.repo, "add-greeting", "S", "greeting")
         self.change = self.repo / "openspec" / "changes" / "add-greeting"
         (self.change / "tasks.md").write_text("## 1. Do\n- [ ] 1.1 Do it — test first: `t` — proof: `p`\n", encoding="utf-8")
@@ -123,12 +123,10 @@ class RolesTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
             with redirect_stdout(io.StringIO()):
-                ai_specs.cmd_init(repo, "LB", "repo", "English", owner="owner1")
-            self.assertEqual(ai_specs.cmd_lint(repo, []), [] if ai_specs.version_tuple(ai_specs.VERSION) >= (0, 2, 0)
-                             else [])
+                ai_specs.cmd_init(repo, "LB", "repo", "English", owner="owner1", kit_repo="o/ai-specs")
+            self.assertEqual(ai_specs.cmd_lint(repo, []), [])
             (repo / "openspec" / "roles.yaml").write_text("approvers: []\nmin_approvals: 1\n", encoding="utf-8")
-            if ai_specs.version_tuple(ai_specs.VERSION) >= (0, 2, 0):
-                self.assertTrue(ai_specs.cmd_lint(repo, []))
+            self.assertTrue(ai_specs.cmd_lint(repo, []))
 
 
 class ApproveTest(GhFixture):

@@ -18,7 +18,8 @@ step() { printf '\n== %s\n' "$*"; }
 
 step "init"
 printf '# e2e\n' > AGENTS.md
-"${AI[@]}" init . --prefix EE
+"${AI[@]}" init . --prefix EE --owner e2e-owner --gate "true" --kit-repo e2e/ai-specs
+test -f openspec/roles.yaml && test -f .github/workflows/ai-specs.yml
 grep -q "ai-specs:begin" AGENTS.md
 
 step "new change + scaffold"
@@ -64,8 +65,36 @@ out="$("${OS[@]}" instructions proposal --change add-greeting 2>&1)"
 if grep -qi "could not parse" <<<"$out"; then echo "$out" >&2; exit 1; fi
 grep -q "Not to add" <<<"$out"
 
-step "archive"
+step "digest is stable across ticks and survives archive"
+D1="$("${AI[@]}" digest . add-greeting)"
 "${OS[@]}" archive add-greeting --yes >/dev/null
 grep -q "Proof:" openspec/specs/greeting/spec.md
+D2="$("${AI[@]}" digest . add-greeting)"
+[ "$D1" = "$D2" ] || { echo "digest changed after archive: $D1 vs $D2" >&2; exit 1; }
+
+step "approval with a fake gh (the real one needs a person in a terminal)"
+BIN="$WORK/.bin"; mkdir -p "$BIN"
+printf '#!/bin/sh\nexec python3 %s "$@"\n' "$KIT/tests/fake_gh.py" > "$BIN/gh"; chmod +x "$BIN/gh"
+cat > "$WORK/gh.json" <<JSON
+{"login": "e2e-owner", "pulls": {"3": {"body": "Closes #1"}},
+ "issues": {"1": {"labels": ["type:change", "state:proposed"], "comments": [],
+   "body": "<!-- ai-specs:change -->\nchange: add-greeting\n<!-- /ai-specs:change -->"}}}
+JSON
+export PATH="$BIN:$PATH" FAKE_GH_STATE="$WORK/gh.json"
+if "${AI[@]}" check-approval . --pr 3 >/dev/null 2>&1; then echo "unapproved change passed the check" >&2; exit 1; fi
+printf '%s\n' "${D2#sha256:}" | cut -c1-8 > "$WORK/typed"
+env -u CLAUDECODE python3 - "$KIT" "$WORK" <<'PY'  # fake gh in a scratch folder: a test fixture, not an approval
+import sys
+from pathlib import Path
+sys.path.insert(0, f"{sys.argv[1]}/scripts")
+import approval
+typed = Path(sys.argv[2], "typed").read_text().strip()
+approval.approve(Path("."), 1, ask=lambda q: typed, is_tty=lambda: True, say=lambda m: None)
+PY
+"${AI[@]}" check-approval . --pr 3
+
+step "contract conformance (real validators; set AI_SPECS_E2E_OFFLINE=1 to skip without network)"
+"${AI[@]}" contract new . greeting --kind jsonschema >/dev/null
+if [ "${AI_SPECS_E2E_OFFLINE:-0}" = "1" ]; then echo "skipped (offline)"; else "${AI[@]}" contract check .; fi
 "${AI[@]}" doctor . >/dev/null
 echo "e2e: ok"

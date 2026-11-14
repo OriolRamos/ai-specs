@@ -1,4 +1,4 @@
-# ai-specs:kit version=0.1.0 prefix=ASP
+# ai-specs:kit version=0.2.0 prefix=ASP
 # Managed by ai-specs (`ai_specs.py init`). Change the kit and re-run init instead of editing this file.
 schema: spec-driven
 
@@ -6,8 +6,8 @@ context: |
   ai-specs keeps what it does today as OpenSpec specs (openspec/specs) and every change as an OpenSpec change
   (openspec/changes/<id>) following the ai-specs standard (docs/standard.md in the ai-specs repo).
   Artifacts are written in English; the headers and markers OpenSpec parses keep their canonical English syntax.
-  OpenSpec keeps intent, requirements, design and tasks. Operational state (owner, status, approvals, run logs)
-  lives in the tracker or orchestrator, never in these files.
+  OpenSpec keeps intent, requirements, design and tasks. Operational state (owner, status, approvals) lives on the
+  change's GitHub issue, never in these files. Work starts only after a human approver approved the change's digest.
   Requirement ids use the prefix ASP- (for example ASP-001) and never change once archived.
   Every change declares a size: S (one sitting, one repo), M (several task groups or a contract/schema change),
   L (several repos, data migration, security-sensitive or epic). The size decides which artifacts are required.
@@ -18,6 +18,7 @@ rules:
     - 'Sections Why and What Changes (with a concrete "Excludes" list), and always a "Not to add" section listing what an agent might add unasked.'
     - 'For M and L add "Prior art and reuse" (reuse / extend / build new, and why; new dependencies are proposals for the owner).'
     - 'For M add a "Change impact" table (changed thing, used by today, breaks?, mitigation/rollback); for L it goes in design.md.'
+    - 'In a product with a platform catalog, start the Change impact table from the output of ai-specs impact.'
     - 'Never reserve a version and never record status, owners or approvals here.'
   specs:
     - 'One observable behaviour per Requirement using SHALL or MUST, titled "ASP-NNN — name"; keep existing ids.'

@@ -13,12 +13,12 @@
 
 ## 2. ai-specs 0.2 · contracts, catalog, gate, memory (ai-specs repo)
 
-- [ ] 2.1 `contract new` and `contract check` (pinned ajv-cli and redocly through npx; runner injectable) — test first: `tests/test_contracts.py::NewTest`, `CheckTest` — proof: `python3 -m unittest tests.test_contracts`
-- [ ] 2.2 Released contract immutability in `lint` (compares with `origin/production`) — test first: `tests/test_contracts.py::ImmutableTest` — proof: `python3 -m unittest tests.test_contracts.ImmutableTest`
-- [ ] 2.3 `init --platform`, `catalog check`, `impact` — test first: `tests/test_catalog.py` — proof: `python3 -m unittest tests.test_catalog`
-- [ ] 2.4 Kit workflow `.github/workflows/ai-specs.yml` written by `init` with least privileges and the repo's gate — test first: `tests/test_ai_specs.py::WorkflowTest` — proof: `python3 -m unittest tests.test_ai_specs.WorkflowTest`
-- [ ] 2.5 `adr new` and the memory rule in the standard — test first: `tests/test_ai_specs.py::AdrTest` — proof: `python3 -m unittest tests.test_ai_specs.AdrTest`
-- [ ] 2.6 Standard 0.2 (`docs/standard.md`), kit config rules, AGENTS block, lint 0.1/0.2 compatibility, `VERSION` 0.2.0, ADR-0002 — test first: `tests/test_ai_specs.py::CompatibilityTest` — proof: `python3 -m unittest discover -s tests`
+- [x] 2.1 `contract new` and `contract check` (pinned ajv-cli and redocly through npx; runner injectable) — test first: `tests/test_contracts.py::NewTest`, `CheckTest` — proof: `python3 -m unittest tests.test_contracts`
+- [x] 2.2 Released contract immutability in `lint` (compares with `origin/production`) — test first: `tests/test_contracts.py::ImmutableTest` — proof: `python3 -m unittest tests.test_contracts.ImmutableTest`
+- [x] 2.3 `init --platform`, `catalog check`, `impact` — test first: `tests/test_catalog.py` — proof: `python3 -m unittest tests.test_catalog`
+- [x] 2.4 Kit workflow `.github/workflows/ai-specs.yml` written by `init` with least privileges and the repo's gate — test first: `tests/test_ai_specs.py::WorkflowTest` — proof: `python3 -m unittest tests.test_ai_specs.WorkflowTest`
+- [x] 2.5 `adr new` and the memory rule in the standard — test first: `tests/test_ai_specs.py::AdrTest` — proof: `python3 -m unittest tests.test_ai_specs.AdrTest`
+- [x] 2.6 Standard 0.2 (`docs/standard.md`), kit config rules, AGENTS block, lint 0.1/0.2 compatibility, `VERSION` 0.2.0, ADR-0002 — test first: `tests/test_ai_specs.py::CompatibilityTest` — proof: `python3 -m unittest discover -s tests`
 - [ ] 2.7 Extend `scripts/e2e.sh` with digest-survives-archive, approval with fake gh, contract conformance — test first: n/a — proof: `bash scripts/e2e.sh`
 
 ## 3. AI-HQ on the flow (ai-hq repo)
