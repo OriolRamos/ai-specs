@@ -1,0 +1,5 @@
+# Who may do what in this repo (ai-specs standard). GitHub logins.
+approvers: [OriolRamos]     # approve specs before work starts (ai-specs approve)
+reviewers: [OriolRamos]     # review PRs (CODEOWNERS is generated from this list)
+releasers: [OriolRamos]     # merge release and promotion PRs
+min_approvals: 1
