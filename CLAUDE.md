@@ -10,9 +10,6 @@ This repo is the ai-specs standard and kit (see `README.md` and `docs/standard.m
   format needs a `VERSION` bump and a note in the ADR log; ids and archived files are never rewritten.
 - `kit/config.yaml.tmpl` rule items are single-quoted YAML scalars with no `'` inside (OpenSpec ignores a config it
   cannot parse; a test guards it).
-- Before saying done: `python3 -m unittest discover -s tests`. If `kit/` changed, also run the end-to-end check
-  with the real CLI in a scratch folder:
-  `ai_specs.py init . --prefix XX` → `openspec new change demo` → `ai_specs.py scaffold . demo --size S --capability x`
-  → fill → `ai_specs.py lint .` → `openspec validate demo --strict` → `openspec instructions proposal --change demo`
-  (no parse warning, rules listed) → `openspec archive demo --yes`.
+- Before saying done: `python3 -m unittest discover -s tests` and, if `kit/` or `scripts/` changed,
+  `bash scripts/e2e.sh` (real OpenSpec CLI in a scratch folder; CI runs both).
 - Code, comments, commits and docs in English. Conventional Commits. Branch `feat/<slug>` → PR to `main`.

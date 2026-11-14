@@ -56,8 +56,8 @@ With AI-HQ, `/hq-spec`, `/hq-tickets` and `/hq-factory` do this for you when the
   `archive/` or `specs/`.
 - `kit/config.yaml.tmpl` rules must be single-quoted YAML scalars. OpenSpec ignores a config it cannot parse, so
   a test guards this.
-- Before merging: `python3 -m unittest discover -s tests`. Before a release: run the end-to-end check in
-  `CLAUDE.md` with the real OpenSpec CLI. Bump `VERSION` whenever the kit changes.
+- Before merging: `python3 -m unittest discover -s tests` and `bash scripts/e2e.sh` (real OpenSpec CLI; CI runs
+  both). Bump `VERSION` whenever the kit changes.
 
 ## Layout
 
