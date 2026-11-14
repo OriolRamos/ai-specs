@@ -1,0 +1,34 @@
+# ai-specs:kit version={{VERSION}} prefix={{PREFIX}}
+# Managed by ai-specs (`ai_specs.py init`). Change the kit and re-run init instead of editing this file.
+schema: spec-driven
+
+context: |
+  {{PROJECT}} keeps what it does today as OpenSpec specs (openspec/specs) and every change as an OpenSpec change
+  (openspec/changes/<id>) following the ai-specs standard (docs/standard.md in the ai-specs repo).
+  Artifacts are written in {{LANGUAGE}}; the headers and markers OpenSpec parses keep their canonical English syntax.
+  OpenSpec keeps intent, requirements, design and tasks. Operational state (owner, status, approvals, run logs)
+  lives in the tracker or orchestrator, never in these files.
+  Requirement ids use the prefix {{PREFIX}}- (for example {{PREFIX}}-001) and never change once archived.
+  Every change declares a size: S (one sitting, one repo), M (several task groups or a contract/schema change),
+  L (several repos, data migration, security-sensitive or epic). The size decides which artifacts are required.
+
+rules:
+  proposal:
+    - 'Start with the line "**Size:** S", "**Size:** M" or "**Size:** L".'
+    - 'Sections Why and What Changes (with a concrete "Excludes" list), and always a "Not to add" section listing what an agent might add unasked.'
+    - 'For M and L add "Prior art and reuse" (reuse / extend / build new, and why; new dependencies are proposals for the owner).'
+    - 'For M add a "Change impact" table (changed thing, used by today, breaks?, mitigation/rollback); for L it goes in design.md.'
+    - 'Never reserve a version and never record status, owners or approvals here.'
+  specs:
+    - 'One observable behaviour per Requirement using SHALL or MUST, titled "{{PREFIX}}-NNN — name"; keep existing ids.'
+    - 'At least one Scenario per Requirement with GIVEN, WHEN and THEN, where THEN states an exact reference result.'
+    - 'End every Scenario with a "- **Proof:**" line naming the command or test that demonstrates it and what counts as a pass.'
+    - 'Link OpenAPI or JSON Schema contracts instead of duplicating them in Markdown.'
+  design:
+    - 'Required for size L. Explain decisions and rejected alternatives, compatibility, migration, security, operations and test strategy.'
+    - 'Include the Change impact table and a rollback plan (revert plus any data or migration step).'
+  tasks:
+    - 'Checkboxes only, grouped in numbered sections, kept current during implementation.'
+    - 'Each task is a vertical slice in one repo that fits a fresh agent context (about 400 changed lines and 8 files at most).'
+    - 'Format every task as "- [ ] N.M <what> — test first: <test or n/a> — proof: `<command>`".'
+    - 'Order baseline, contracts (provider before consumer), behaviour, docs and removal of replaced sources; mark sensitive-path tasks "(human gate)".'
