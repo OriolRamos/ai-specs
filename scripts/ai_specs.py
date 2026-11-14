@@ -24,6 +24,8 @@ Commands:
       Versioned contract skeleton; conformance of every contract (pinned validators through npx) (ASP-040/041).
   catalog check <platform> · impact <platform> <id>
       Product catalog of a platform repo; what an id touches (ASP-050/051).
+  leak-check <repo> [--range A..B]
+      Files containing a term of the local ~/.config/ai-specs/forbidden-terms.txt (terms never printed) (ASP-090).
   adr new <repo> "<title>"
       Next numbered ADR in docs/adr/ from the template (ASP-070).
 Init options: --owner (roles.yaml), --gate "<command>" (CI gate job), --kit-repo owner/ai-specs (CI checkout),
@@ -45,6 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # also when run throug
 import approval  # noqa: E402
 import catalog  # noqa: E402
 import contracts  # noqa: E402
+import leakcheck  # noqa: E402
 
 KIT = Path(__file__).resolve().parent.parent
 VERSION = (KIT / "VERSION").read_text(encoding="utf-8").strip()
@@ -366,6 +369,10 @@ def cmd_lint(repo: Path, changes: list[str]) -> list[str]:
     if state.process != "ai-specs":
         raise AiSpecsError(f"{repo} does not run ai-specs ({state.reason or state.process})")
     errors: list[str] = []
+    terms = leakcheck.load_terms()
+    if terms:  # local only: the terms file never leaves the machine (ASP-090)
+        errors += [f"{rel}: contains an internal term listed in {leakcheck.terms_file()}"
+                   for rel in leakcheck.scan(repo, terms)]
     if version_tuple(state.version) >= (0, 2, 0):
         errors += approval.roles_errors(repo)
         errors += contracts.released_changes(repo)
@@ -434,6 +441,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("action", choices=("new",))
     p.add_argument("repo", type=Path)
     p.add_argument("title")
+    p = sub.add_parser("leak-check")
+    p.add_argument("repo", type=Path)
+    p.add_argument("--range", dest="rev_range")
     p = sub.add_parser("digest")
     p.add_argument("repo", type=Path)
     p.add_argument("change")
@@ -486,6 +496,16 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"  - {item}")
         elif args.cmd == "adr":
             print(f"[ok] {cmd_adr(repo, args.title).relative_to(repo)}")
+        elif args.cmd == "leak-check":
+            terms = leakcheck.load_terms()
+            if not terms:
+                print(f"no terms file at {leakcheck.terms_file()}: nothing to check")
+                return 0
+            hits = leakcheck.scan(repo, terms, args.rev_range)
+            for rel in hits:
+                print(f"LEAK {rel}: contains an internal term")
+            print(f"{len(hits)} file(s) with internal terms")
+            return 1 if hits else 0
         elif args.cmd == "digest":
             print(approval.digest(approval.change_folder(repo, args.change)))
         elif args.cmd == "approve":
