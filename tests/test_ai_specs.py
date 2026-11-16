@@ -5,11 +5,14 @@ Run: python3 -m unittest discover -s tests
 from __future__ import annotations
 
 import io
+import json
+import os
 import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 KIT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(KIT / "scripts"))
@@ -209,6 +212,67 @@ class WorkflowTest(RepoTest):
         text = (self.repo / ".github" / "workflows" / "ai-specs.yml").read_text(encoding="utf-8")
         self.assertIn("Declare this repo", text)
         self.assertIn("exit 1", text)
+
+
+
+class CardCliTest(unittest.TestCase):
+    """`ai_specs.py card resolve|render|review . --event <file>`: exit codes and GITHUB_OUTPUT (task 3.4)."""
+
+    def setUp(self) -> None:
+        sys.path.insert(0, str(KIT / "tests"))
+        import test_card  # noqa: PLC0415  (the card fixture: a git branch and a fake gh)
+
+        self.fixture = test_card.ReviewTest("run")
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.tearDown)
+        self.tmp = Path(self.fixture._tmp.name)
+        self.output = self.tmp / "github_output"
+        self.output.write_text("", encoding="utf-8")
+        self.event = self.tmp / "event.json"
+
+    def card(self, action: str, event: dict, **env: str) -> tuple[int, str]:
+        self.event.write_text(json.dumps(event), encoding="utf-8")
+        values = {"GITHUB_OUTPUT": str(self.output), **env}
+        with mock.patch.dict(os.environ, values):
+            if "GITHUB_RUN_ID" not in env:
+                os.environ.pop("GITHUB_RUN_ID", None)
+            return run("card", action, str(self.fixture.base), "--event", str(self.event),
+                       "--src", str(self.fixture.src))
+
+    def test_resolve_writes_outputs(self) -> None:
+        code, out = self.card("resolve", self.fixture.push_event())
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.output.read_text(encoding="utf-8"),
+                         "proceed=true\nissue=12\nchange=demo\nbranch=change/12-demo\n")
+        self.output.write_text("", encoding="utf-8")
+        code, out = self.card("resolve", self.fixture.push_event("refs/heads/feature/x"))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.output.read_text(encoding="utf-8"), "proceed=false\n")
+        self.assertIn("notice:", out)
+
+    def test_render_then_review(self) -> None:
+        self.assertEqual(self.card("render", self.fixture.push_event())[0], 0)
+        self.assertEqual(len(self.fixture.cards()), 1)
+        target = self.fixture.cards()[0]
+        event = self.fixture.issue_event()
+        event["comment"] = {"id": target["id"], "body": target["body"].replace("- [ ]", "- [x]", 1),
+                            "user": {"login": "github-actions[bot]", "type": "Bot"}}
+        event["sender"] = {"login": "someone", "type": "User"}
+        code, out = self.card("review", event, GITHUB_RUN_ID="77")
+        self.assertEqual(code, 1, out)
+        self.assertIn("not an approver", out)
+        event["sender"] = {"login": "owner", "type": "User"}
+        self.assertEqual(self.card("review", event)[0], 2)  # no run id: not inside the workflow
+        self.fixture.run_record("77", "owner")
+        code, out = self.card("review", event, GITHUB_RUN_ID="77")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(len(self.fixture.records()), 1)
+
+    def test_github_failure_is_exit_2(self) -> None:
+        self.fixture.state["offline"] = True
+        self.fixture.save()
+        self.assertEqual(self.card("render", self.fixture.push_event())[0], 2)
+        self.assertEqual(self.card("resolve", self.fixture.push_event())[0], 2)
 
 
 class AdrTest(RepoTest):

@@ -28,6 +28,10 @@ Commands:
       Files containing a term of the local ~/.config/ai-specs/forbidden-terms.txt (terms never printed) (ASP-090).
   adr new <repo> "<title>"
       Next numbered ADR in docs/adr/ from the template (ASP-070).
+  card resolve|render|review <repo> --event <file> [--src change-src]
+      The approval card workflow (ASP-111 … ASP-115): <repo> is the default-branch checkout (roles), --src the change
+      branch checkout (data only). resolve writes proceed/issue/change/branch to $GITHUB_OUTPUT; render draws the
+      card; review checks a tick (run id from $GITHUB_RUN_ID). Exit 0, 1 (tick undone) or 2 (cannot check).
 Init options: --owner (roles.yaml), --gate "<command>" (CI gate job), --kit-repo owner/ai-specs (CI checkout),
 --platform [--product <id>] (a product platform repo: catalog, shared contracts, cross-repo ADRs).
 """
@@ -35,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -45,6 +50,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # also when run through the ~/.local/bin symlink
 import approval  # noqa: E402
+import card  # noqa: E402
 import catalog  # noqa: E402
 import contracts  # noqa: E402
 import leakcheck  # noqa: E402
@@ -54,7 +60,7 @@ VERSION = (KIT / "VERSION").read_text(encoding="utf-8").strip()
 OPENSPEC_VERSION = "1.13.1"
 MARKER = re.compile(r"^# ai-specs:kit version=(?P<version>\S+) prefix=(?P<prefix>[A-Z][A-Z0-9]*)", re.M)
 PREFIX_RE = re.compile(r"^[A-Z][A-Z0-9]{1,9}$")
-CHANGE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,79}$")
+CHANGE_ID_RE = card.CHANGE_ID_RE
 BLOCK_BEGIN = "<!-- ai-specs:begin"
 BLOCK_END = "<!-- ai-specs:end -->"
 SIZES = ("S", "M", "L")
@@ -401,6 +407,35 @@ def cmd_doctor(repo: Path) -> dict:
     return report
 
 
+# ---------------------------------------------------------------- card (ASP-111 … ASP-115)
+def cmd_card(repo: Path, action: str, event_file: Path, src: Path) -> int:
+    try:
+        event = json.loads(event_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise card.CardError(f"cannot read the event file {event_file}: {exc}") from exc
+    if action == "resolve":
+        target = card.resolve(repo, event)
+        lines = ["proceed=false"]
+        if target.proceed:
+            lines = ["proceed=true", f"issue={target.issue}", f"change={target.change}", f"branch={target.branch}"]
+        else:
+            print(f"notice: {target.reason}")
+        output = os.environ.get("GITHUB_OUTPUT")
+        if output:
+            with open(output, "a", encoding="utf-8") as handle:
+                handle.write("\n".join(lines) + "\n")
+        else:
+            print("\n".join(lines))
+        return 0
+    src = src if src.is_absolute() else (Path.cwd() / src)
+    if action == "render":
+        print(card.sync(repo, src, event))
+        return 0
+    code, message = card.review(repo, src, event, os.environ.get("GITHUB_RUN_ID", ""))
+    print(message)
+    return code
+
+
 # ---------------------------------------------------------------- cli
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="ai_specs.py", description=__doc__.split("\n")[0])
@@ -450,6 +485,11 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("approve")
     p.add_argument("repo", type=Path)
     p.add_argument("issue", type=int)
+    p = sub.add_parser("card")
+    p.add_argument("action", choices=("resolve", "render", "review"))
+    p.add_argument("repo", type=Path)
+    p.add_argument("--event", type=Path, required=True, help="the GitHub event file ($GITHUB_EVENT_PATH)")
+    p.add_argument("--src", type=Path, default=Path("change-src"), help="checkout of the change branch")
     p = sub.add_parser("check-approval")
     p.add_argument("repo", type=Path)
     p.add_argument("issue", type=int, nargs="?")
@@ -516,6 +556,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
             number = args.issue if args.issue is not None else approval.issue_of_pr(repo, args.pr)
             print(approval.check(repo, number))
+        elif args.cmd == "card":
+            return cmd_card(repo, args.action, args.event, args.src)
         elif args.cmd == "lint":
             errors = cmd_lint(repo, args.changes)
             for error in errors:
@@ -550,6 +592,9 @@ def main(argv: list[str] | None = None) -> int:
     except catalog.CatalogError as exc:
         print(f"ai-specs: {exc}", file=sys.stderr)
         return 2
+    except card.CardError as exc:
+        print(f"ai-specs: {exc}", file=sys.stderr)
+        return exc.code
     return 0
 
 
