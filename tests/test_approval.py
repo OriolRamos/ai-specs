@@ -13,8 +13,12 @@ from unittest import mock
 
 KIT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(KIT / "scripts"))
+sys.path.insert(0, str(KIT / "tests"))
 
 import ai_specs  # noqa: E402
+import kitclone  # noqa: E402
+
+kitclone.install()  # init pins the kit to the commit of tag v<VERSION>: use a tagged copy
 import approval  # noqa: E402
 
 BLOCK = "Some text.\n<!-- ai-specs:change -->\nchange: add-greeting\nbranch: change/12-add-greeting\nsize: S\n<!-- /ai-specs:change -->\n"

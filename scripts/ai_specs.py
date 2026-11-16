@@ -3,8 +3,9 @@
 
 Commands:
   init <repo> --prefix LB [--project NAME] [--language English]
-      Write openspec/config.yaml from the kit, create openspec/specs and openspec/changes, and add the managed
-      ai-specs block to the repo's AGENTS.md (or CLAUDE.md). Idempotent. Refuses a repo that already runs another
+      Write openspec/config.yaml from the kit, create openspec/specs and openspec/changes, add the managed
+      ai-specs block to the repo's AGENTS.md (or CLAUDE.md) and write the two kit workflows, pinned to the commit of
+      tag v<VERSION> of the kit (refused without the tag; the kit repo itself uses its own scripts/). Idempotent. Refuses a repo that already runs another
       spec process (an openspec/config.yaml not written by ai-specs, or an Azure DevOps process skill).
   scaffold <repo> <change-id> --size S|M|L [--capability NAME]
       Create the change folder if needed and the artifacts its size requires, from the kit templates.
@@ -13,7 +14,8 @@ Commands:
       Check active changes against the standard: size line, required sections, requirement ids, a Proof line in
       every scenario, task format, no TODO left. Exit 1 on errors.
   doctor <repo> [--json]
-      Report which process the repo runs, the kit version, the openspec command to use and the lint state.
+      Report which process the repo runs, the kit version, the approval card workflow, the openspec command to use
+      and the lint state.
   digest <repo> <change-id>
       Print the change's digest (ASP-020): ticking tasks does not change it; any scope edit does.
   approve <repo> <issue>
@@ -161,6 +163,11 @@ def cmd_init(repo: Path, prefix: str, project: str, language: str, owner: str | 
         raise AiSpecsError(f"{repo} already runs another spec process ({state.reason}); ai-specs will not touch it")
     if state.process == "ai-specs" and state.prefix != prefix:
         raise AiSpecsError(f"{repo} uses prefix {state.prefix}; requirement ids never change once archived")
+    self_mode = repo.resolve() == KIT.resolve()
+    kit_ref = kit_repo or kit_repo_default() or ("self" if self_mode else "")
+    if not kit_ref:
+        raise AiSpecsError("cannot tell the ai-specs GitHub repo for CI: pass --kit-repo <owner>/<repo>")
+    kit_sha = "" if self_mode else kit_commit()  # refuses before anything is written
     done = []
     openspec = repo / "openspec"
     for sub in ("specs", "changes"):
@@ -188,17 +195,18 @@ def cmd_init(repo: Path, prefix: str, project: str, language: str, owner: str | 
     workflow = repo / ".github" / "workflows" / "ai-specs.yml"
     old_gate = WORKFLOW_GATE_RE.search(workflow.read_text(encoding="utf-8")) if workflow.exists() else None
     gate_cmd = gate or (old_gate.group(1).strip() if old_gate else NO_GATE)
-    kit_ref = kit_repo or kit_repo_default() or ("self" if repo.resolve() == KIT.resolve() else "")
-    if not kit_ref:
-        raise AiSpecsError("cannot tell the ai-specs GitHub repo for CI: pass --kit-repo <owner>/<repo>")
     workflow.parent.mkdir(parents=True, exist_ok=True)
-    text = render((KIT / "kit" / "workflow.yml.tmpl").read_text(encoding="utf-8"), VERSION=VERSION,
-                  KIT_REPO=kit_ref, OPENSPEC_VERSION=OPENSPEC_VERSION, GATE=gate_cmd)
-    if repo.resolve() == KIT.resolve():  # the kit checks itself with the code of the same commit, not a release tag
-        text = re.sub(r"      # kit-checkout:begin\n.*?      # kit-checkout:end\n", "", text, flags=re.S)
-        text = text.replace(".ai-specs-kit/scripts/", "scripts/")
-    workflow.write_text(text, encoding="utf-8")
+    for name, template, extra in (("ai-specs.yml", "workflow.yml.tmpl", {"OPENSPEC_VERSION": OPENSPEC_VERSION,
+                                                                          "GATE": gate_cmd}),
+                                  (CARD_WORKFLOW_NAME, "approval-card.yml.tmpl", {})):
+        text = render((KIT / "kit" / template).read_text(encoding="utf-8"), VERSION=VERSION, KIT_REPO=kit_ref,
+                      KIT_SHA=kit_sha, **extra)
+        if self_mode:  # the kit checks itself with the code of the same commit, not a release tag
+            text = re.sub(r"      # kit-checkout:begin\n.*?      # kit-checkout:end\n", "", text, flags=re.S)
+            text = text.replace(".ai-specs-kit/scripts/", "scripts/")
+        (workflow.parent / name).write_text(text, encoding="utf-8")
     done.append(".github/workflows/ai-specs.yml" + ("" if gate_cmd != NO_GATE else " (no gate yet: pass --gate)"))
+    done.append(f".github/workflows/{CARD_WORKFLOW_NAME} (approval card)")
     if platform:
         product_json = repo / "catalog" / "product.json"
         if not product_json.exists():
@@ -213,6 +221,20 @@ def cmd_init(repo: Path, prefix: str, project: str, language: str, owner: str | 
                 (folder / ".gitkeep").write_text("", encoding="utf-8")
         done.append("contracts/, docs/adr/ (platform)")
     return done
+
+
+CARD_WORKFLOW_NAME = "ai-specs-approval.yml"
+WORKFLOW_MARKER = re.compile(r"^# ai-specs:workflow version=(\S+)", re.M)
+
+
+def kit_commit() -> str:
+    """The commit of tag `v<VERSION>` in the kit checkout: CI checks out exactly that commit (ASP-119)."""
+    res = subprocess.run(["git", "-C", str(KIT), "rev-parse", "--verify", "--quiet", f"v{VERSION}^{{commit}}"],
+                         capture_output=True, text=True, check=False)
+    sha = res.stdout.strip()
+    if res.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise AiSpecsError(f"tag v{VERSION} not found in the kit: fetch tags (git -C {KIT} fetch --tags)")
+    return sha
 
 
 WORKFLOW_GATE_RE = re.compile(r"- name: Repo gate\n\s+run: \|\n\s+(.+)\n?")
@@ -404,6 +426,11 @@ def cmd_doctor(repo: Path) -> dict:
         for change in state.changes:
             report["changes"][change] = lint_change(repo, change, state.prefix)
         report["kit_outdated"] = state.version != VERSION
+        card_file = repo / ".github" / "workflows" / CARD_WORKFLOW_NAME
+        found = WORKFLOW_MARKER.search(card_file.read_text(encoding="utf-8")) if card_file.is_file() else None
+        report["card_workflow"] = ("missing" if not card_file.is_file()
+                                   else "ok" if found and found.group(1) == VERSION
+                                   else f"outdated ({found.group(1) if found else 'no version'})")
     return report
 
 
@@ -574,6 +601,8 @@ def main(argv: list[str] | None = None) -> int:
                 if report["process"] == "ai-specs":
                     outdated = " (outdated: re-run init)" if report["kit_outdated"] else ""
                     print(f"kit:      {report['repo_kit_version']} (current {VERSION}){outdated} · prefix {report['prefix']}")
+                    card_note = "" if report["card_workflow"] == "ok" else " (re-run init)"
+                    print(f"card:     .github/workflows/{CARD_WORKFLOW_NAME}: {report['card_workflow']}{card_note}")
                 print(f"openspec: {report['openspec']}")
                 for change, errors in report["changes"].items():
                     print(f"change:   {change}: {'ok' if not errors else f'{len(errors)} lint errors'}")
