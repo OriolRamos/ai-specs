@@ -11,4 +11,8 @@
 Decisions taken in the owner's private AI-HQ workspace that shaped the method (summarised here, the full text stays private):
 ADR-013 neutral skills move to ai-skills · ADR-014 specs live in each repo with ai-specs · ADR-015 Linux only, modules per
 machine · ADR-016 the method repos run the GitHub flow · ADR-017 private state repos stay off the approval flow · ADR-018 the guard follows the registry, work lands on develop · ADR-019 local working memory per machine (brain).
+
+Rule changes without a new ADR: `guard-base-develop` (#11) modifies ASP-035 so unregistered repos also protect `develop`
+and the local `origin/HEAD` target; registered repos keep their registry list (no format change, no `VERSION` bump).
+
 New method decisions are written here (standard section 13), never only in the workspace.
