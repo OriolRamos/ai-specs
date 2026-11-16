@@ -5,16 +5,23 @@ Run: python3 -m unittest discover -s tests
 from __future__ import annotations
 
 import io
+import json
+import re
+import os
 import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 KIT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(KIT / "scripts"))
 
 import ai_specs  # noqa: E402
+import kitclone  # noqa: E402
+
+kitclone.install()  # init pins the kit to the commit of tag v<VERSION>: use a tagged copy
 
 GOOD_SPEC = """## Purpose
 
@@ -189,7 +196,7 @@ class WorkflowTest(RepoTest):
         self.assertEqual(sorted(line.strip() for line in perms.splitlines()),
                          ["contents: read", "issues: read", "pull-requests: read"])
         self.assertIn("repository: someone/ai-specs", text)
-        self.assertIn(f"ref: v{ai_specs.VERSION}", text)
+        self.assertIn(f"ref: {ai_specs.kit_commit()} # v{ai_specs.VERSION}", text)
         self.assertIn("check-approval . --pr", text)
         self.assertNotRegex(text, r"\{\{[A-Z_]+\}\}")  # every kit placeholder replaced (GitHub's ${{ }} stays)
         run("init", str(self.repo), "--prefix", "LB", "--kit-repo", "someone/ai-specs")  # gate kept on re-init
@@ -209,6 +216,214 @@ class WorkflowTest(RepoTest):
         text = (self.repo / ".github" / "workflows" / "ai-specs.yml").read_text(encoding="utf-8")
         self.assertIn("Declare this repo", text)
         self.assertIn("exit 1", text)
+
+
+
+
+SHA_USES_RE = re.compile(r"^\s*(?:- )?uses: [A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40} # v\d+(?:\.\d+)*$")
+
+
+def run_scripts(text: str) -> list[str]:
+    """The text of every `run:` step (single line or block scalar)."""
+    scripts, lines = [], text.splitlines()
+    for i, line in enumerate(lines):
+        match = re.match(r"^(\s*)(?:- )?run:\s*(.*)$", line)
+        if not match:
+            continue
+        if match.group(2) in ("|", ">", "|-", ">-"):
+            indent, body = len(match.group(1)), []
+            for nxt in lines[i + 1:]:
+                if nxt.strip() and len(nxt) - len(nxt.lstrip()) <= indent:
+                    break
+                body.append(nxt)
+            scripts.append("\n".join(body))
+        else:
+            scripts.append(match.group(2))
+    return scripts
+
+
+def job(text: str, name: str) -> str:
+    return text.split(f"\n  {name}:\n", 1)[1].split("\n\n  ", 1)[0]
+
+
+class CardWorkflowTest(RepoTest):
+    """ASP-116, ASP-119: kit 0.3.0 writes the card workflow, least-privilege and pinned."""
+
+    def card_workflow(self) -> str:
+        return (self.repo / ".github" / "workflows" / "ai-specs-approval.yml").read_text(encoding="utf-8")
+
+    def test_template_audit(self) -> None:
+        self.init()
+        text = self.card_workflow()
+        self.assertTrue(text.startswith(f"# ai-specs:workflow version={ai_specs.VERSION}\n"))
+        perms = text.split("\npermissions:\n", 1)[1].split("\n\n", 1)[0]
+        self.assertEqual(sorted(line.strip() for line in perms.splitlines()), ["contents: read", "issues: write"])
+        self.assertEqual(text.count("permissions:"), 1)  # no job widens it
+        uses = [line for line in text.splitlines() if "uses:" in line]
+        self.assertTrue(uses)
+        for line in uses:
+            self.assertRegex(line, SHA_USES_RE)
+        for script in run_scripts(text):
+            self.assertNotIn("${{", script)  # values reach scripts only through env and the event file
+        self.assertNotIn("secrets.", text)
+        sha = ai_specs.kit_commit()
+        self.assertRegex(sha, r"^[0-9a-f]{40}$")
+        self.assertEqual(text.count(f"ref: {sha} # v{ai_specs.VERSION}"), 2)
+        self.assertEqual(text.count("persist-credentials: false"), 6)
+        self.assertNotRegex(text, r"\{\{[A-Z_]+\}\}")
+
+    def test_job_conditions_and_concurrency(self) -> None:
+        self.init()
+        text = self.card_workflow()
+        render, review = job(text, "render"), job(text, "review")
+        self.assertIn("github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'type:change')",
+                      render)
+        self.assertIn("github.event_name == 'push' && !github.event.deleted", render)
+        self.assertIn("cancel-in-progress: true", render)
+        for condition in ("github.event_name == 'issue_comment'", "!github.event.issue.pull_request",
+                          "github.event.comment.user.login == 'github-actions[bot]'",
+                          "startsWith(github.event.comment.body, '<!-- ai-specs:approval-card ')",
+                          "github.event.sender.type != 'Bot'"):
+            self.assertIn(condition, review)
+        self.assertNotIn("concurrency:", review)
+        self.assertIn("card render . --event \"$GITHUB_EVENT_PATH\" --src change-src", render)
+        self.assertIn("card review . --event \"$GITHUB_EVENT_PATH\" --src change-src", review)
+        for part in (render, review):
+            self.assertIn("ref: ${{ github.event.repository.default_branch }}", part)  # roles from the default branch
+            self.assertIn("ref: ${{ steps.resolve.outputs.branch }}\n          path: change-src", part)
+        self.assertIn("types: [edited]", text.split("issue_comment:", 1)[1].split("\n  push:", 1)[0])
+
+    def test_kit_workflow_pins_and_actions_read(self) -> None:
+        self.init()
+        text = (self.repo / ".github" / "workflows" / "ai-specs.yml").read_text(encoding="utf-8")
+        for line in (line for line in text.splitlines() if "uses:" in line):
+            self.assertRegex(line, SHA_USES_RE)
+        approval_job = job(text, "approval")
+        perms = approval_job.split("permissions:", 1)[1].split("\n    env:", 1)[0]
+        self.assertEqual(sorted(line.strip() for line in perms.splitlines()[1:]),
+                         ["actions: read", "contents: read", "issues: read", "pull-requests: read"])
+        self.assertNotIn("actions:", text.split("\njobs:", 1)[0])
+        self.assertNotIn("write", text)
+
+    def test_init_upgrades_and_doctor_reports(self) -> None:
+        code, out = run("init", str(self.repo), "--prefix", "EE", "--owner", "owner1", "--kit-repo", "o/ai-specs",
+                        "--gate", "make verify")
+        self.assertEqual(code, 0, out)
+        workflows = self.repo / ".github" / "workflows"
+        # make it look like a kit 0.2.2 repo: old markers, no card workflow
+        config = self.repo / "openspec" / "config.yaml"
+        config.write_text(config.read_text(encoding="utf-8").replace(f"version={ai_specs.VERSION}", "version=0.2.2"),
+                          encoding="utf-8")
+        old = workflows / "ai-specs.yml"
+        old.write_text(old.read_text(encoding="utf-8").replace(f"version={ai_specs.VERSION}", "version=0.2.2"),
+                       encoding="utf-8")
+        (workflows / "ai-specs-approval.yml").unlink()
+        report = ai_specs.cmd_doctor(self.repo)
+        self.assertEqual((report["kit_outdated"], report["card_workflow"]), (True, "missing"))
+        self.assertIn("card:     .github/workflows/ai-specs-approval.yml: missing (re-run init)",
+                      run("doctor", str(self.repo))[1])
+        code, out = run("init", str(self.repo), "--prefix", "EE", "--kit-repo", "o/ai-specs")
+        self.assertEqual(code, 0, out)
+        for name in ("ai-specs.yml", "ai-specs-approval.yml"):
+            self.assertTrue((workflows / name).read_text(encoding="utf-8").startswith(
+                f"# ai-specs:workflow version={ai_specs.VERSION}\n"), name)
+        text = old.read_text(encoding="utf-8")
+        self.assertIn("make verify", text)
+        self.assertIn("actions: read", job(text, "approval"))
+        report = ai_specs.cmd_doctor(self.repo)
+        self.assertEqual((report["kit_outdated"], report["card_workflow"]), (False, "ok"))
+        card_file = workflows / "ai-specs-approval.yml"
+        card_file.write_text(card_file.read_text(encoding="utf-8").replace(f"version={ai_specs.VERSION}",
+                                                                           "version=0.2.9"), encoding="utf-8")
+        self.assertEqual(ai_specs.cmd_doctor(self.repo)["card_workflow"], "outdated (0.2.9)")
+
+    def test_init_refuses_without_tag(self) -> None:
+        untagged = kitclone.copy_kit(tagged=False)
+        with mock.patch.object(ai_specs, "KIT", untagged):
+            code, out = run("init", str(self.repo), "--prefix", "EE", "--owner", "owner1", "--kit-repo", "o/ai-specs")
+        self.assertNotEqual(code, 0)
+        self.assertIn(f"tag v{ai_specs.VERSION} not found in the kit: fetch tags", out)
+        self.assertFalse((self.repo / ".github").exists())
+        self.assertFalse((self.repo / "openspec").exists())
+
+    def test_self_mode(self) -> None:
+        kit = kitclone.copy_kit(tagged=False, fresh=True)  # the kit repo itself needs no tag
+        (kit / "openspec").mkdir()
+        (kit / "openspec" / "roles.yaml").write_text("approvers: [owner1]\nmin_approvals: 1\n", encoding="utf-8")
+        (kit / "CLAUDE.md").write_text("# kit\n", encoding="utf-8")
+        with mock.patch.object(ai_specs, "KIT", kit):
+            code, out = run("init", str(kit), "--prefix", "ASP", "--gate", "true")
+        self.assertEqual(code, 0, out)
+        for name in ("ai-specs.yml", "ai-specs-approval.yml"):
+            text = (kit / ".github" / "workflows" / name).read_text(encoding="utf-8")
+            self.assertNotIn(".ai-specs-kit", text, name)
+            self.assertNotIn("kit-checkout", text, name)
+            self.assertNotIn("repository:", text, name)
+            for line in (line for line in text.splitlines() if "uses:" in line):
+                self.assertRegex(line, SHA_USES_RE)
+        card_text = (kit / ".github" / "workflows" / "ai-specs-approval.yml").read_text(encoding="utf-8")
+        self.assertIn("python3 scripts/ai_specs.py card review .", card_text)
+        self.assertEqual(card_text.count("python3 scripts/ai_specs.py card resolve ."), 2)
+
+
+class CardCliTest(unittest.TestCase):
+    """`ai_specs.py card resolve|render|review . --event <file>`: exit codes and GITHUB_OUTPUT (task 3.4)."""
+
+    def setUp(self) -> None:
+        sys.path.insert(0, str(KIT / "tests"))
+        import test_card  # noqa: PLC0415  (the card fixture: a git branch and a fake gh)
+
+        self.fixture = test_card.ReviewTest("run")
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.tearDown)
+        self.tmp = Path(self.fixture._tmp.name)
+        self.output = self.tmp / "github_output"
+        self.output.write_text("", encoding="utf-8")
+        self.event = self.tmp / "event.json"
+
+    def card(self, action: str, event: dict, **env: str) -> tuple[int, str]:
+        self.event.write_text(json.dumps(event), encoding="utf-8")
+        values = {"GITHUB_OUTPUT": str(self.output), **env}
+        with mock.patch.dict(os.environ, values):
+            if "GITHUB_RUN_ID" not in env:
+                os.environ.pop("GITHUB_RUN_ID", None)
+            return run("card", action, str(self.fixture.base), "--event", str(self.event),
+                       "--src", str(self.fixture.src))
+
+    def test_resolve_writes_outputs(self) -> None:
+        code, out = self.card("resolve", self.fixture.push_event())
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.output.read_text(encoding="utf-8"),
+                         "proceed=true\nissue=12\nchange=demo\nbranch=change/12-demo\n")
+        self.output.write_text("", encoding="utf-8")
+        code, out = self.card("resolve", self.fixture.push_event("refs/heads/feature/x"))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.output.read_text(encoding="utf-8"), "proceed=false\n")
+        self.assertIn("notice:", out)
+
+    def test_render_then_review(self) -> None:
+        self.assertEqual(self.card("render", self.fixture.push_event())[0], 0)
+        self.assertEqual(len(self.fixture.cards()), 1)
+        target = self.fixture.cards()[0]
+        event = self.fixture.issue_event()
+        event["comment"] = {"id": target["id"], "body": target["body"].replace("- [ ]", "- [x]", 1),
+                            "user": {"login": "github-actions[bot]", "type": "Bot"}}
+        event["sender"] = {"login": "someone", "type": "User"}
+        code, out = self.card("review", event, GITHUB_RUN_ID="77")
+        self.assertEqual(code, 1, out)
+        self.assertIn("not an approver", out)
+        event["sender"] = {"login": "owner", "type": "User"}
+        self.assertEqual(self.card("review", event)[0], 2)  # no run id: not inside the workflow
+        self.fixture.run_record("77", "owner")
+        code, out = self.card("review", event, GITHUB_RUN_ID="77")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(len(self.fixture.records()), 1)
+
+    def test_github_failure_is_exit_2(self) -> None:
+        self.fixture.state["offline"] = True
+        self.fixture.save()
+        self.assertEqual(self.card("render", self.fixture.push_event())[0], 2)
+        self.assertEqual(self.card("resolve", self.fixture.push_event())[0], 2)
 
 
 class AdrTest(RepoTest):

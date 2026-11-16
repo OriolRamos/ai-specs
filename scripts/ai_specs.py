@@ -3,8 +3,9 @@
 
 Commands:
   init <repo> --prefix LB [--project NAME] [--language English]
-      Write openspec/config.yaml from the kit, create openspec/specs and openspec/changes, and add the managed
-      ai-specs block to the repo's AGENTS.md (or CLAUDE.md). Idempotent. Refuses a repo that already runs another
+      Write openspec/config.yaml from the kit, create openspec/specs and openspec/changes, add the managed
+      ai-specs block to the repo's AGENTS.md (or CLAUDE.md) and write the two kit workflows, pinned to the commit of
+      tag v<VERSION> of the kit (refused without the tag; the kit repo itself uses its own scripts/). Idempotent. Refuses a repo that already runs another
       spec process (an openspec/config.yaml not written by ai-specs, or an Azure DevOps process skill).
   scaffold <repo> <change-id> --size S|M|L [--capability NAME]
       Create the change folder if needed and the artifacts its size requires, from the kit templates.
@@ -13,7 +14,8 @@ Commands:
       Check active changes against the standard: size line, required sections, requirement ids, a Proof line in
       every scenario, task format, no TODO left. Exit 1 on errors.
   doctor <repo> [--json]
-      Report which process the repo runs, the kit version, the openspec command to use and the lint state.
+      Report which process the repo runs, the kit version, the approval card workflow, the openspec command to use
+      and the lint state.
   digest <repo> <change-id>
       Print the change's digest (ASP-020): ticking tasks does not change it; any scope edit does.
   approve <repo> <issue>
@@ -28,6 +30,10 @@ Commands:
       Files containing a term of the local ~/.config/ai-specs/forbidden-terms.txt (terms never printed) (ASP-090).
   adr new <repo> "<title>"
       Next numbered ADR in docs/adr/ from the template (ASP-070).
+  card resolve|render|review <repo> --event <file> [--src change-src]
+      The approval card workflow (ASP-111 … ASP-115): <repo> is the default-branch checkout (roles), --src the change
+      branch checkout (data only). resolve writes proceed/issue/change/branch to $GITHUB_OUTPUT; render draws the
+      card; review checks a tick (run id from $GITHUB_RUN_ID). Exit 0, 1 (tick undone) or 2 (cannot check).
 Init options: --owner (roles.yaml), --gate "<command>" (CI gate job), --kit-repo owner/ai-specs (CI checkout),
 --platform [--product <id>] (a product platform repo: catalog, shared contracts, cross-repo ADRs).
 """
@@ -35,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -45,6 +52,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # also when run through the ~/.local/bin symlink
 import approval  # noqa: E402
+import card  # noqa: E402
 import catalog  # noqa: E402
 import contracts  # noqa: E402
 import leakcheck  # noqa: E402
@@ -54,7 +62,7 @@ VERSION = (KIT / "VERSION").read_text(encoding="utf-8").strip()
 OPENSPEC_VERSION = "1.13.1"
 MARKER = re.compile(r"^# ai-specs:kit version=(?P<version>\S+) prefix=(?P<prefix>[A-Z][A-Z0-9]*)", re.M)
 PREFIX_RE = re.compile(r"^[A-Z][A-Z0-9]{1,9}$")
-CHANGE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,79}$")
+CHANGE_ID_RE = card.CHANGE_ID_RE
 BLOCK_BEGIN = "<!-- ai-specs:begin"
 BLOCK_END = "<!-- ai-specs:end -->"
 SIZES = ("S", "M", "L")
@@ -155,6 +163,11 @@ def cmd_init(repo: Path, prefix: str, project: str, language: str, owner: str | 
         raise AiSpecsError(f"{repo} already runs another spec process ({state.reason}); ai-specs will not touch it")
     if state.process == "ai-specs" and state.prefix != prefix:
         raise AiSpecsError(f"{repo} uses prefix {state.prefix}; requirement ids never change once archived")
+    self_mode = repo.resolve() == KIT.resolve()
+    kit_ref = kit_repo or kit_repo_default() or ("self" if self_mode else "")
+    if not kit_ref:
+        raise AiSpecsError("cannot tell the ai-specs GitHub repo for CI: pass --kit-repo <owner>/<repo>")
+    kit_sha = "" if self_mode else kit_commit()  # refuses before anything is written
     done = []
     openspec = repo / "openspec"
     for sub in ("specs", "changes"):
@@ -182,17 +195,18 @@ def cmd_init(repo: Path, prefix: str, project: str, language: str, owner: str | 
     workflow = repo / ".github" / "workflows" / "ai-specs.yml"
     old_gate = WORKFLOW_GATE_RE.search(workflow.read_text(encoding="utf-8")) if workflow.exists() else None
     gate_cmd = gate or (old_gate.group(1).strip() if old_gate else NO_GATE)
-    kit_ref = kit_repo or kit_repo_default() or ("self" if repo.resolve() == KIT.resolve() else "")
-    if not kit_ref:
-        raise AiSpecsError("cannot tell the ai-specs GitHub repo for CI: pass --kit-repo <owner>/<repo>")
     workflow.parent.mkdir(parents=True, exist_ok=True)
-    text = render((KIT / "kit" / "workflow.yml.tmpl").read_text(encoding="utf-8"), VERSION=VERSION,
-                  KIT_REPO=kit_ref, OPENSPEC_VERSION=OPENSPEC_VERSION, GATE=gate_cmd)
-    if repo.resolve() == KIT.resolve():  # the kit checks itself with the code of the same commit, not a release tag
-        text = re.sub(r"      # kit-checkout:begin\n.*?      # kit-checkout:end\n", "", text, flags=re.S)
-        text = text.replace(".ai-specs-kit/scripts/", "scripts/")
-    workflow.write_text(text, encoding="utf-8")
+    for name, template, extra in (("ai-specs.yml", "workflow.yml.tmpl", {"OPENSPEC_VERSION": OPENSPEC_VERSION,
+                                                                          "GATE": gate_cmd}),
+                                  (CARD_WORKFLOW_NAME, "approval-card.yml.tmpl", {})):
+        text = render((KIT / "kit" / template).read_text(encoding="utf-8"), VERSION=VERSION, KIT_REPO=kit_ref,
+                      KIT_SHA=kit_sha, **extra)
+        if self_mode:  # the kit checks itself with the code of the same commit, not a release tag
+            text = re.sub(r"      # kit-checkout:begin\n.*?      # kit-checkout:end\n", "", text, flags=re.S)
+            text = text.replace(".ai-specs-kit/scripts/", "scripts/")
+        (workflow.parent / name).write_text(text, encoding="utf-8")
     done.append(".github/workflows/ai-specs.yml" + ("" if gate_cmd != NO_GATE else " (no gate yet: pass --gate)"))
+    done.append(f".github/workflows/{CARD_WORKFLOW_NAME} (approval card)")
     if platform:
         product_json = repo / "catalog" / "product.json"
         if not product_json.exists():
@@ -207,6 +221,20 @@ def cmd_init(repo: Path, prefix: str, project: str, language: str, owner: str | 
                 (folder / ".gitkeep").write_text("", encoding="utf-8")
         done.append("contracts/, docs/adr/ (platform)")
     return done
+
+
+CARD_WORKFLOW_NAME = "ai-specs-approval.yml"
+WORKFLOW_MARKER = re.compile(r"^# ai-specs:workflow version=(\S+)", re.M)
+
+
+def kit_commit() -> str:
+    """The commit of tag `v<VERSION>` in the kit checkout: CI checks out exactly that commit (ASP-119)."""
+    res = subprocess.run(["git", "-C", str(KIT), "rev-parse", "--verify", "--quiet", f"v{VERSION}^{{commit}}"],
+                         capture_output=True, text=True, check=False)
+    sha = res.stdout.strip()
+    if res.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise AiSpecsError(f"tag v{VERSION} not found in the kit: fetch tags (git -C {KIT} fetch --tags)")
+    return sha
 
 
 WORKFLOW_GATE_RE = re.compile(r"- name: Repo gate\n\s+run: \|\n\s+(.+)\n?")
@@ -398,7 +426,41 @@ def cmd_doctor(repo: Path) -> dict:
         for change in state.changes:
             report["changes"][change] = lint_change(repo, change, state.prefix)
         report["kit_outdated"] = state.version != VERSION
+        card_file = repo / ".github" / "workflows" / CARD_WORKFLOW_NAME
+        found = WORKFLOW_MARKER.search(card_file.read_text(encoding="utf-8")) if card_file.is_file() else None
+        report["card_workflow"] = ("missing" if not card_file.is_file()
+                                   else "ok" if found and found.group(1) == VERSION
+                                   else f"outdated ({found.group(1) if found else 'no version'})")
     return report
+
+
+# ---------------------------------------------------------------- card (ASP-111 … ASP-115)
+def cmd_card(repo: Path, action: str, event_file: Path, src: Path) -> int:
+    try:
+        event = json.loads(event_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise card.CardError(f"cannot read the event file {event_file}: {exc}") from exc
+    if action == "resolve":
+        target = card.resolve(repo, event)
+        lines = ["proceed=false"]
+        if target.proceed:
+            lines = ["proceed=true", f"issue={target.issue}", f"change={target.change}", f"branch={target.branch}"]
+        else:
+            print(f"notice: {target.reason}")
+        output = os.environ.get("GITHUB_OUTPUT")
+        if output:
+            with open(output, "a", encoding="utf-8") as handle:
+                handle.write("\n".join(lines) + "\n")
+        else:
+            print("\n".join(lines))
+        return 0
+    src = src if src.is_absolute() else (Path.cwd() / src)
+    if action == "render":
+        print(card.sync(repo, src, event))
+        return 0
+    code, message = card.review(repo, src, event, os.environ.get("GITHUB_RUN_ID", ""))
+    print(message)
+    return code
 
 
 # ---------------------------------------------------------------- cli
@@ -450,6 +512,11 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("approve")
     p.add_argument("repo", type=Path)
     p.add_argument("issue", type=int)
+    p = sub.add_parser("card")
+    p.add_argument("action", choices=("resolve", "render", "review"))
+    p.add_argument("repo", type=Path)
+    p.add_argument("--event", type=Path, required=True, help="the GitHub event file ($GITHUB_EVENT_PATH)")
+    p.add_argument("--src", type=Path, default=Path("change-src"), help="checkout of the change branch")
     p = sub.add_parser("check-approval")
     p.add_argument("repo", type=Path)
     p.add_argument("issue", type=int, nargs="?")
@@ -516,6 +583,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
             number = args.issue if args.issue is not None else approval.issue_of_pr(repo, args.pr)
             print(approval.check(repo, number))
+        elif args.cmd == "card":
+            return cmd_card(repo, args.action, args.event, args.src)
         elif args.cmd == "lint":
             errors = cmd_lint(repo, args.changes)
             for error in errors:
@@ -532,6 +601,8 @@ def main(argv: list[str] | None = None) -> int:
                 if report["process"] == "ai-specs":
                     outdated = " (outdated: re-run init)" if report["kit_outdated"] else ""
                     print(f"kit:      {report['repo_kit_version']} (current {VERSION}){outdated} · prefix {report['prefix']}")
+                    card_note = "" if report["card_workflow"] == "ok" else " (re-run init)"
+                    print(f"card:     .github/workflows/{CARD_WORKFLOW_NAME}: {report['card_workflow']}{card_note}")
                 print(f"openspec: {report['openspec']}")
                 for change, errors in report["changes"].items():
                     print(f"change:   {change}: {'ok' if not errors else f'{len(errors)} lint errors'}")
@@ -550,6 +621,9 @@ def main(argv: list[str] | None = None) -> int:
     except catalog.CatalogError as exc:
         print(f"ai-specs: {exc}", file=sys.stderr)
         return 2
+    except card.CardError as exc:
+        print(f"ai-specs: {exc}", file=sys.stderr)
+        return exc.code
     return 0
 
 

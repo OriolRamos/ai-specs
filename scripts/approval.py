@@ -1,4 +1,4 @@
-"""Digest, roles and human approval of a change (ASP-020 … ASP-023), stdlib only."""
+"""Digest, roles and human approval of a change (ASP-020 … ASP-023, ASP-117, ASP-118), stdlib only."""
 from __future__ import annotations
 
 import hashlib
@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
@@ -14,6 +15,10 @@ import ghcli
 
 CHECKED_RE = re.compile(rb"^(\s*- )\[[xX]\]", re.M)
 APPROVAL_RE = re.compile(r"<!-- ai-specs:approval digest=(sha256:[0-9a-f]{64}) commit=([0-9a-f]{7,40}) by=([A-Za-z0-9-]+) -->")
+CARD_RECORD_RE = re.compile(r"<!-- ai-specs:approval digest=(sha256:[0-9a-f]{64}) commit=([0-9a-f]{7,40}) "
+                            r"by=([A-Za-z0-9-]+) via=card run=(\d{1,20}) -->")
+BOT_LOGIN = "github-actions[bot]"  # only a workflow's GITHUB_TOKEN writes as this login
+CARD_WORKFLOW = ".github/workflows/ai-specs-approval.yml"
 BLOCK_RE = re.compile(r"<!-- ai-specs:change -->(.*?)<!-- /ai-specs:change -->", re.S)
 CLOSES_RE = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b", re.I)
 ROLE_KEYS = ("approvers", "reviewers", "releasers")
@@ -188,7 +193,79 @@ def approve(repo: Path, number: int, ask: Callable[[str], str] = input,
     say(f"approved: #{number} is now state:approved")
 
 
-# ---------------------------------------------------------------- check (ASP-023)
+# ---------------------------------------------------------------- check (ASP-023, ASP-117, ASP-118)
+@dataclass
+class Count:
+    """Approvals of one digest: `valid` logins, `stale` digests seen, and why some card records did not count."""
+    valid: set[str] = field(default_factory=set)
+    stale: list[str] = field(default_factory=list)
+    missing_runs: list[str] = field(default_factory=list)
+
+
+def _time(text: str | None) -> datetime | None:
+    try:
+        return datetime.fromisoformat((text or "").replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def is_bot_note(note: dict) -> bool:
+    user = note.get("user") or {}
+    return user.get("login") == BOT_LOGIN and user.get("type") == "Bot"
+
+
+def _run_proves(run: dict, note: dict, by: str, repo_meta: dict) -> bool:
+    """The record was written by the card workflow of the default branch, triggered by `by` (design section 3)."""
+    run_time, note_time = _time(run.get("created_at")), _time(note.get("created_at"))
+    full_name = ((run.get("repository") or {}).get("full_name"))
+    return (run.get("event") == "issue_comment"
+            and run.get("path") == CARD_WORKFLOW
+            and run.get("head_branch") == repo_meta.get("default_branch")
+            and ((run.get("triggering_actor") or {}).get("login")) == by
+            and run_time is not None and note_time is not None and run_time <= note_time
+            and (full_name is None or full_name == repo_meta.get("full_name")))
+
+
+def count_approvals(repo: Path, notes: list[dict], roles: Roles, current: str, verify_runs: bool = True) -> Count:
+    """The one counting rule for `check-approval` and the card workflow.
+
+    Terminal records count when their author is `by`; card records when the Actions bot wrote them and (with
+    `verify_runs`) their run proves the card workflow of the default branch wrote them for `by`. Either kind stops
+    counting once edited. The card workflow has no `actions: read`, so it counts with `verify_runs=False`: the label it
+    sets is advisory, `check-approval` stays the authority. Raises ghcli.GhError when GitHub cannot answer.
+    """
+    count = Count()
+    repo_meta: dict | None = None
+    for note in notes:
+        author = ((note.get("user") or {}).get("login")) or ""
+        body = note.get("body") or ""
+        if note.get("created_at") != note.get("updated_at"):
+            continue  # an edited approval proves nothing (ASP-118)
+        for value, _commit, by in APPROVAL_RE.findall(body):
+            if by != author or by not in roles.approvers:
+                continue  # forged or not an approver: ignored
+            (count.valid.add(by) if value == current else count.stale.append(value))
+        for value, _commit, by, run_id in CARD_RECORD_RE.findall(body):
+            if not is_bot_note(note) or by not in roles.approvers:
+                continue
+            if value != current:
+                count.stale.append(value)
+                continue
+            if by in count.valid:
+                continue
+            if verify_runs:
+                if repo_meta is None:
+                    repo_meta = ghcli.repo_info(repo)
+                run = ghcli.run_info(repo, run_id)
+                if run is None:
+                    count.missing_runs.append(run_id)
+                    continue
+                if not _run_proves(run, note, by, repo_meta):
+                    continue
+            count.valid.add(by)
+    return count
+
+
 def check(repo: Path, number: int) -> str:
     """Returns a one-line success message or raises ApprovalError (code 1 not approved/stale, 2 cannot check)."""
     roles = read_roles(repo)
@@ -199,16 +276,15 @@ def check(repo: Path, number: int) -> str:
         raise ApprovalError(str(exc), 2) from exc
     change = change_of(data.get("body") or "")
     current = digest(change_folder(repo, change))
-    valid: set[str] = set()
-    stale: list[str] = []
-    for note in notes:
-        author = ((note.get("user") or {}).get("login")) or ""
-        for value, _commit, by in APPROVAL_RE.findall(note.get("body") or ""):
-            if by != author or by not in roles.approvers:
-                continue  # forged or not an approver: ignored
-            (valid.add(by) if value == current else stale.append(value))
-    if len(valid) >= roles.min_approvals:
-        return f"approved: #{number} '{change}' by {', '.join(sorted(valid))} for {current}"
-    if stale:
-        raise ApprovalError(f"approved digest {stale[-1]} no longer matches {current}: the scope changed, approve again")
-    raise ApprovalError(f"#{number} '{change}' has {len(valid)} of {roles.min_approvals} approval(s) for {current}")
+    try:
+        count = count_approvals(repo, notes, roles, current)
+    except ghcli.GhError as exc:
+        raise ApprovalError(str(exc), 2) from exc
+    if len(count.valid) >= roles.min_approvals:
+        return f"approved: #{number} '{change}' by {', '.join(sorted(count.valid))} for {current}"
+    if count.missing_runs:
+        raise ApprovalError(f"card approval run {count.missing_runs[-1]} not found in this repo: approve again")
+    if count.stale:
+        raise ApprovalError(f"approved digest {count.stale[-1]} no longer matches {current}: the scope changed, "
+                            "approve again")
+    raise ApprovalError(f"#{number} '{change}' has {len(count.valid)} of {roles.min_approvals} approval(s) for {current}")

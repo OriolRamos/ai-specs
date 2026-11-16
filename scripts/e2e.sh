@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end check of the kit with the real OpenSpec CLI, in a throwaway folder (CI and before a release).
 # init → new change → scaffold → fill → lint → validate --strict → instructions (config parsed, rules listed)
-# → archive (the Proof line reaches the living spec).
+# → archive (the Proof line reaches the living spec) → terminal approval → approval card on a real git branch.
 # Uses $OPENSPEC if set, else `openspec` on PATH, else the pinned version through npx.
 set -euo pipefail
 
@@ -10,16 +10,24 @@ VERSION="$(sed -n 's/^OPENSPEC_VERSION = "\(.*\)"/\1/p' "$KIT/scripts/ai_specs.p
 if [ -n "${OPENSPEC:-}" ]; then read -r -a OS <<<"$OPENSPEC"
 elif command -v openspec >/dev/null 2>&1; then OS=(openspec)
 else OS=(npx -y "@fission-ai/openspec@$VERSION"); fi
-AI=(python3 "$KIT/scripts/ai_specs.py")
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
-cd "$WORK"
+KITCOPY="$(mktemp -d)"
+trap 'rm -rf "$WORK" "$KITCOPY"' EXIT
 step() { printf '\n== %s\n' "$*"; }
+export GIT_AUTHOR_NAME=e2e GIT_AUTHOR_EMAIL=e2e@example.invalid GIT_COMMITTER_NAME=e2e GIT_COMMITTER_EMAIL=e2e@example.invalid
+
+step "tagged copy of the kit (init pins CI to the commit of tag v<VERSION>)"
+cp -r "$KIT/scripts" "$KIT/kit" "$KIT/VERSION" "$KITCOPY/"
+git -C "$KITCOPY" init -q -b develop && git -C "$KITCOPY" add -A && git -C "$KITCOPY" commit -q -m kit
+git -C "$KITCOPY" tag -a "v$(cat "$KIT/VERSION")" -m release
+AI=(python3 "$KITCOPY/scripts/ai_specs.py")
+cd "$WORK"
 
 step "init"
 printf '# e2e\n' > AGENTS.md
 "${AI[@]}" init . --prefix EE --owner e2e-owner --gate "true" --kit-repo e2e/ai-specs
-test -f openspec/roles.yaml && test -f .github/workflows/ai-specs.yml
+test -f openspec/roles.yaml && test -f .github/workflows/ai-specs.yml && test -f .github/workflows/ai-specs-approval.yml
+grep -q "ref: $(git -C "$KITCOPY" rev-parse HEAD) # v" .github/workflows/ai-specs-approval.yml
 grep -q "ai-specs:begin" AGENTS.md
 
 step "new change + scaffold"
@@ -105,6 +113,55 @@ state["pulls"]["4"] = {"body": "Back-merge (Refs #1)", "head": {"ref": "hotfix/1
 json.dump(state, open(sys.argv[1], "w"))
 PY
 "${AI[@]}" check-approval . --pr 4 >/dev/null && echo "hotfix back-merge resolves its issue from the branch"
+
+step "approval card: render from a real git branch, tick as the approver, gate passes; reword, gate fails"
+BR=change/1-add-greeting
+git init -q -b "$BR" . && git add -A && git commit -q -m "change 1"
+python3 - "$WORK" "$BR" "$(git rev-parse HEAD)" <<'PY'  # card comments only: drop the terminal approval
+import json, sys
+work, branch, sha = sys.argv[1:]
+state = json.load(open(f"{work}/gh.json"))
+state.update(login="github-actions[bot]", branches={branch: sha}, runs={})
+issue = state["issues"]["1"]
+issue.update(comments=[], body=f"<!-- ai-specs:change -->\nchange: add-greeting\nbranch: {branch}\n<!-- /ai-specs:change -->")
+json.dump(state, open(f"{work}/gh.json", "w"))
+json.dump({"ref": f"refs/heads/{branch}", "repository": {"html_url": "https://github.com/e2e/repo"}},
+          open(f"{work}/push.json", "w"))
+PY
+"${AI[@]}" card render . --event "$WORK/push.json" --src .
+python3 - "$WORK" <<'PY'  # the approver ticks the box; GitHub runs the review job (run 900)
+import json, sys
+work = sys.argv[1]
+state = json.load(open(f"{work}/gh.json"))
+issue = state["issues"]["1"]
+cards = [c for c in issue["comments"] if c["body"].startswith("<!-- ai-specs:approval-card ")]
+assert len(cards) == 1, cards
+card = cards[0]
+card["body"] = card["body"].replace("- [ ] I approve", "- [x] I approve", 1)
+state["runs"] = {"900": {"event": "issue_comment", "path": ".github/workflows/ai-specs-approval.yml",
+                         "head_branch": "develop", "triggering_actor": {"login": "e2e-owner"},
+                         "created_at": "2026-11-16T09:00:00Z"}}
+json.dump(state, open(f"{work}/gh.json", "w"))
+event = {"action": "edited", "repository": {"html_url": "https://github.com/e2e/repo"},
+         "issue": {"number": 1, "state": "open", "body": issue["body"], "labels": [{"name": n} for n in issue["labels"]]},
+         "comment": {"id": card["id"], "body": card["body"], "user": card["user"]},
+         "sender": {"login": "e2e-owner", "type": "User"}}
+json.dump(event, open(f"{work}/tick.json", "w"))
+PY
+GITHUB_RUN_ID=900 "${AI[@]}" card review . --event "$WORK/tick.json" --src .
+"${AI[@]}" check-approval . --pr 3
+PROPOSAL="$(ls -d openspec/changes/archive/*-add-greeting)/proposal.md"
+printf '\nOne more caller wants it.\n' >> "$PROPOSAL"
+git commit -q -am "reword" && python3 - "$WORK" "$BR" "$(git rev-parse HEAD)" <<'PY'
+import json, sys
+work, branch, sha = sys.argv[1:]
+state = json.load(open(f"{work}/gh.json"))
+state["branches"][branch] = sha
+json.dump(state, open(f"{work}/gh.json", "w"))
+PY
+"${AI[@]}" card render . --event "$WORK/push.json" --src . | grep -q "state:proposed"
+if "${AI[@]}" check-approval . --pr 3 >/dev/null 2>&1; then echo "a reworded scope kept its card approval" >&2; exit 1; fi
+echo "card approval: recorded, checked, and dropped after a reword"
 
 step "contract conformance (real validators; set AI_SPECS_E2E_OFFLINE=1 to skip without network)"
 "${AI[@]}" contract new . greeting --kind jsonschema >/dev/null

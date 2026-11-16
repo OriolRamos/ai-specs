@@ -1,4 +1,4 @@
-# The ai-specs standard (0.2)
+# The ai-specs standard (0.3)
 
 How a repo describes what it does, and how every change to it is specified, approved, built, proved, released and
 remembered. It runs on [OpenSpec](https://github.com/Fission-AI/OpenSpec) (MIT) and GitHub, and it fuses two ways of
@@ -45,7 +45,7 @@ working:
 | Machine contracts | `contracts/<name>/v<N>/` in the provider repo, or in the product platform repo when shared |
 | Product map | `catalog/product.json` in the `<product>-platform` repo |
 | Decisions | `docs/adr/` (see 13. Memory) |
-| CI | `.github/workflows/ai-specs.yml` (written by `init`) |
+| CI | `.github/workflows/ai-specs.yml` and the approval card `.github/workflows/ai-specs-approval.yml` (written by `init`) |
 
 OpenSpec keeps the intent. The issue keeps the state. Neither copies the other: the issue links the change, and the
 change never holds a status field.
@@ -137,7 +137,8 @@ one repo that fits a fresh agent context** (about ≤ 400 changed lines, ≤ 8 f
   ```
 - **One state label at a time:** `state:proposed` → `state:approved` → `state:in-progress` → `state:in-review` →
   closed (by the PR's `Closes #n`), plus `state:blocked` with a comment saying why. A scope edit after approval sends
-  the issue back to `state:proposed`.
+  the issue back to `state:proposed`: the approval card workflow does it on the push that changes the digest
+  (`state:approved`, `state:in-progress` or `state:in-review` → `state:proposed`).
 - **Epics:** work across repos has a `type:epic` issue in the product platform repo, with one `type:change` sub-issue
   per repo. The epic closes only when all its sub-issues are closed.
 - **The chain:**
@@ -166,14 +167,42 @@ min_approvals: 1
     sessions (`CLAUDECODE`) and without a TTY.
   - Steps: it shows the digest and asks for its first 8 characters, posts
     `<!-- ai-specs:approval digest=… commit=… by=<login> -->`, and sets `state:approved`.
+- **The approval card** (`.github/workflows/ai-specs-approval.yml`, written by `init`).
+  - **What it shows.** One sticky comment by `github-actions[bot]` on every open `type:change` issue whose block names
+    an existing `change/<issue>-<slug>` branch, drawn from the change folder at the branch head: change id and size;
+    Why, What Changes and Not to add (cut at 600, 1500 and 800 characters, with a link to the full text); every
+    requirement id and title; the task count and the `(human gate)` tasks; the sensitive paths the change names
+    (`.github/workflows/`, `CODEOWNERS`, `openspec/roles.yaml`, `openspec/config.yaml`, `contracts/`, `scripts/`);
+    links to the artifacts at the exact commit; the 8-character digest and one box,
+    `- [ ] I approve exactly this scope (digest <8>)`. HTML comments in the change are stripped from it.
+  - **When it changes.** It is redrawn on `issues` (opened, edited, reopened) and on `push` to `change/**`. A new
+    digest redraws it unchecked and sends the issue back to `state:proposed` (section 7); ticking tasks changes
+    nothing.
+  - **A tick.** On `issue_comment: edited`, the workflow records an approval only when the editor
+    (`github.event.sender.login`, set by GitHub) is in `approvers` of the default branch's `roles.yaml`, the digest on
+    the card equals the digest at the head, and the card's scope text is identical to a fresh render. It then posts
+    `<!-- ai-specs:approval digest=… commit=… by=<login> via=card run=<run id> -->`, which @mentions the approver,
+    and sets `state:approved` once `min_approvals` approvers approved the digest. Any other tick is undone and the
+    card says why. Records are deduplicated per digest and login.
+  - **Limits.** Revoking is deleting the record comment. Agents act with the owner's GitHub token, so neither GitHub
+    nor the workflow can tell an agent's tick from the owner's: agents never tick the card nor post approval markers,
+    the machine's agent guard denies those commands, and the @mention notifies the approver of every card approval
+    given in their name.
 - **`ai-specs check-approval <repo> <issue> | --pr <n>`**
-  - **Exit 0:** `min_approvals` distinct approvers approved the **current** digest, each in a comment written by
-    themselves.
-  - **Exit 1:** approvals are missing or stale.
+  - **Exit 0:** `min_approvals` distinct approvers approved the **current** digest. Terminal and card approvals
+    count together, by login:
+    - a terminal record counts when its comment author is its `by` login;
+    - a card record counts when `github-actions[bot]` wrote it and its run is an `issue_comment` run of
+      `.github/workflows/ai-specs-approval.yml` on the default branch, triggered by its `by` login and created before
+      the record. An `issue_comment` run always uses the default branch's workflow file, which only a reviewed,
+      approved PR can change.
+    - An approval comment of either kind that was edited (`updated_at` differs from `created_at`) never counts.
+  - **Exit 1:** approvals are missing or stale, or a card record's run no longer exists (approve again).
   - **Exit 2:** it cannot check. Nothing treats 2 as approved.
 - **Gates:** work does not start, and the PR into `develop` does not merge, until `check-approval` passes. CI runs it
   as the required `approval` check.
-- **Agents** never approve, never merge into `develop`, `pre-production` or `production`, and never push to them.
+- **Agents** never approve (neither `ai-specs approve` nor a tick of the card), never merge into `develop`,
+  `pre-production` or `production`, and never push to them.
 
 ## 9. Branches, releases and hotfixes
 
@@ -229,7 +258,13 @@ Two commands work on it:
   any failure. Thresholds belong to the repo.
 - **The kit workflow** runs three required checks: `ai-specs` (OpenSpec `validate --all --strict`, `ai-specs lint`,
   `contract check`), `approval` (PRs into `develop` and from `hotfix/*`) and `gate`. It asks only for read
-  permissions.
+  permissions; the `approval` job adds `actions: read` to verify the runs behind card approvals.
+- **The approval card workflow** asks for exactly `contents: read` and `issues: write`, uses `GITHUB_TOKEN` as its
+  only credential, never expands issue, comment or branch text with `${{ }}` inside a `run:` script, and checks out
+  the change branch with `persist-credentials: false` as data that it never executes. It adds no required check.
+- **Pins.** Every `uses:` in both kit workflows is pinned to a full commit SHA, with the version in a comment, and the
+  kit checkout is pinned to the commit of the kit's `v<VERSION>` tag (`init` refuses when the tag is missing). In the
+  kit repo itself, the workflows use `scripts/` from the same commit.
 
 ## 13. Memory
 
@@ -274,8 +309,8 @@ change, and the brain links to the result.
    - Run `openspec new change <id>`, then fill what the size requires.
    - Check: `openspec validate <id> --strict` and `ai-specs lint <repo> <id>`.
    - Push, and write the managed block (spec commit and digest).
-3. **Approve.** An approver reviews the change at that commit and runs `ai-specs approve`. Editing the scope later
-   needs a new approval.
+3. **Approve.** An approver reviews the change at that commit and ticks the approval card on the issue, or runs
+   `ai-specs approve` in their own terminal. Editing the scope later needs a new approval.
 4. **Apply.**
    - Gate: `check-approval` must pass.
    - Move the issue to `state:in-progress`.
@@ -295,7 +330,8 @@ change, and the brain links to the result.
 | OpenSpec structure | `openspec validate --all --strict` | yes (CI `ai-specs`) |
 | ai-specs rules (size, sections, ids, proof, tasks, roles, released contracts) | `ai-specs lint <repo>` | yes (CI `ai-specs`) |
 | Contract conformance | `ai-specs contract check <repo>` | yes (CI `ai-specs`) |
-| Approved scope | `ai-specs check-approval <repo> --pr <n>` | yes (CI `approval`) |
+| Approved scope (terminal and card approvals) | `ai-specs check-approval <repo> --pr <n>` | yes (CI `approval`) |
+| Approval card | `.github/workflows/ai-specs-approval.yml` (render on issue and push, review on tick) | no (it records approvals; `approval` is the gate) |
 | Repo gate | the repo's gate command | yes (CI `gate`) |
 | Catalog | `ai-specs catalog check <platform>` | yes in platform repos |
-| Repo health, process, kit version | `ai-specs doctor <repo>` | no |
+| Repo health, process, kit version, card workflow missing or outdated | `ai-specs doctor <repo>` | no |

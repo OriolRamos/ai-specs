@@ -1,4 +1,4 @@
-# ai-specs:workflow version=0.2.2
+# ai-specs:workflow version=0.3.0
 # Managed by ai-specs (`ai_specs.py init`). Change the kit and re-run init instead of editing this file.
 # Required checks on develop, pre-production and production: ai-specs, gate; on develop also approval.
 name: ai-specs
@@ -17,13 +17,13 @@ jobs:
   ai-specs:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
       - name: OpenSpec strict validation
@@ -41,12 +41,17 @@ jobs:
       && github.event.pull_request.user.login != 'dependabot[bot]'
       && github.event.pull_request.user.login != 'renovate[bot]'
     runs-on: ubuntu-24.04
+    permissions:  # actions: read lets check-approval verify the run behind each approval-card record
+      contents: read
+      issues: read
+      pull-requests: read
+      actions: read
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - name: Approved scope matches this PR
@@ -55,11 +60,11 @@ jobs:
   gate:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
       - name: Repo gate

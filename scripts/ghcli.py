@@ -91,3 +91,44 @@ def set_state(cwd: Path, number: int, state: str) -> None:
         api(f"repos/{{owner}}/{{repo}}/issues/{number}/labels/{old}", cwd, method="DELETE")
     if state not in current:
         api(f"repos/{{owner}}/{{repo}}/issues/{number}/labels", cwd, method="POST", fields={"labels[]": state})
+
+
+def edit_comment(cwd: Path, comment_id: int, body: str) -> None:
+    api(f"repos/{{owner}}/{{repo}}/issues/comments/{comment_id}", cwd, method="PATCH", fields={"body": body})
+
+
+def repo_info(cwd: Path) -> dict:
+    """The repository (`full_name`, `default_branch`, `html_url`)."""
+    data = api("repos/{owner}/{repo}", cwd)
+    if not isinstance(data, dict) or not data.get("default_branch"):
+        raise GhError("gh api repos/{owner}/{repo}: no default branch in the answer")
+    return data
+
+
+def default_branch(cwd: Path) -> str:
+    return str(repo_info(cwd)["default_branch"])
+
+
+def _not_found(exc: GhError) -> bool:
+    return "HTTP 404" in str(exc)
+
+
+def run_info(cwd: Path, run_id: str | int) -> dict | None:
+    """A workflow run of this repo, or None when GitHub says it does not exist (404). Other failures raise GhError."""
+    try:
+        return api(f"repos/{{owner}}/{{repo}}/actions/runs/{int(run_id)}", cwd)
+    except GhError as exc:
+        if _not_found(exc):
+            return None
+        raise
+
+
+def branch_head(cwd: Path, branch: str) -> str | None:
+    """The head SHA of a branch, or None when the branch does not exist (404)."""
+    try:
+        data = api(f"repos/{{owner}}/{{repo}}/git/ref/heads/{branch}", cwd)
+    except GhError as exc:
+        if _not_found(exc):
+            return None
+        raise
+    return str(((data or {}).get("object") or {}).get("sha") or "") or None

@@ -1,0 +1,89 @@
+# ai-specs:workflow version=0.3.0
+# Managed by ai-specs (`ai_specs.py init`). Change the kit and re-run init instead of editing this file.
+# The approval card (standard section 8): one sticky comment per open change issue shows the scope in plain language;
+# a tick by an approver becomes an approval record that `check-approval` verifies against this workflow's run.
+# GITHUB_TOKEN is the only credential. The change branch is data: its files are read, nothing in it runs.
+name: ai-specs-approval
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+  issue_comment:
+    types: [edited]
+  push:
+    branches: ['change/**']
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  render:
+    if: >-
+      (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'type:change'))
+      || (github.event_name == 'push' && !github.event.deleted)
+    runs-on: ubuntu-24.04
+    # A newer render reads a newer head, so dropping an older one is safe.
+    concurrency:
+      group: ai-specs-card-render-${{ github.repository }}-${{ github.event.issue.number || github.ref }}
+      cancel-in-progress: true
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Resolve the issue and its change branch
+        id: resolve
+        run: python3 scripts/ai_specs.py card resolve . --event "$GITHUB_EVENT_PATH"
+      - name: Check out the change branch (data only)
+        if: steps.resolve.outputs.proceed == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.resolve.outputs.branch }}
+          path: change-src
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Render the approval card
+        if: steps.resolve.outputs.proceed == 'true'
+        run: python3 scripts/ai_specs.py card render . --event "$GITHUB_EVENT_PATH" --src change-src
+
+  review:
+    # A person edited the card (GITHUB_TOKEN edits never trigger workflows, so this never reacts to itself).
+    if: >-
+      github.event_name == 'issue_comment'
+      && !github.event.issue.pull_request
+      && github.event.comment.user.login == 'github-actions[bot]'
+      && startsWith(github.event.comment.body, '<!-- ai-specs:approval-card ')
+      && github.event.sender.type != 'Bot'
+    runs-on: ubuntu-24.04
+    # No concurrency group: GitHub cancels pending runs of a group, and a cancelled run would lose its sender's tick.
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Resolve the issue and its change branch
+        id: resolve
+        run: python3 scripts/ai_specs.py card resolve . --event "$GITHUB_EVENT_PATH"
+      - name: Check out the change branch (data only; history to verify the commit the card was drawn at)
+        if: steps.resolve.outputs.proceed == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.resolve.outputs.branch }}
+          path: change-src
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Review the tick
+        run: python3 scripts/ai_specs.py card review . --event "$GITHUB_EVENT_PATH" --src change-src
