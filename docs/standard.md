@@ -203,6 +203,9 @@ min_approvals: 1
   as the required `approval` check.
 - **Agents** never approve (neither `ai-specs approve` nor a tick of the card), never merge into `develop`,
   `pre-production` or `production`, and never push to them.
+- **Local guard (ASP-035).** In a repo that is not in the local registry, the guard protects `main`, `master`,
+  `develop`, `pre-production`, `production` and the branch the local `refs/remotes/origin/HEAD` names (local git
+  metadata only, no network); a registered repo protects exactly its registry's `protected` list.
 
 ## 9. Branches, releases and hotfixes
 
