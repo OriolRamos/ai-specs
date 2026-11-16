@@ -239,5 +239,113 @@ class CheckTest(GhFixture):
         self.assertEqual(self.run_check("12")[0], 2)
 
 
+
+BOT = {"login": "github-actions[bot]", "type": "Bot"}
+WHEN = "2026-11-16T10:05:00Z"
+
+
+class CardRecordTest(GhFixture):
+    """ASP-117, ASP-118: a `via=card` record counts only when the card workflow provably wrote it."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.state["runs"] = {"77": {"event": "issue_comment", "path": ".github/workflows/ai-specs-approval.yml",
+                                     "head_branch": "develop", "triggering_actor": {"login": "owner1"},
+                                     "created_at": "2026-11-16T10:04:00Z", "repository": {"full_name": "o/r"}}}
+        self.save()
+
+    def card_record(self, by: str = "owner1", run: str = "77", user: dict | None = None,
+                    updated: str = WHEN, digest: str | None = None) -> None:
+        body = (f"<!-- ai-specs:approval digest={digest or self.digest()} commit={'a' * 40} by={by} via=card run={run} -->\n"
+                f"Approved by @{by} from the approval card.")
+        self.state["issues"]["12"]["comments"].append({"id": len(self.state["issues"]["12"]["comments"]) + 1,
+                                                       "user": user or BOT, "body": body,
+                                                       "created_at": WHEN, "updated_at": updated})
+        self.save()
+
+    def run_check(self) -> tuple[int, str]:
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = ai_specs.main(["check-approval", str(self.repo), "12"])
+        return code, out.getvalue() + err.getvalue()
+
+    def test_verified_card_record_counts(self) -> None:
+        self.card_record()
+        code, out = self.run_check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("owner1", out)
+
+    def test_author_must_be_the_actions_bot(self) -> None:
+        for user in ({"login": "owner1", "type": "User"}, {"login": "github-actions[bot]", "type": "User"},
+                     {"login": "other-app[bot]", "type": "Bot"}):
+            with self.subTest(user=user):
+                self.state["issues"]["12"]["comments"] = []
+                self.card_record(user=user)
+                self.assertEqual(self.run_check()[0], 1)
+
+    def test_by_must_be_an_approver(self) -> None:
+        self.state["runs"]["77"]["triggering_actor"] = {"login": "someone"}
+        self.card_record(by="someone")
+        self.assertEqual(self.run_check()[0], 1)
+
+    def test_run_event_path_branch_and_actor_must_match(self) -> None:
+        good = dict(self.state["runs"]["77"])
+        for key, value in (("event", "push"), ("path", ".github/workflows/other.yml"),
+                           ("head_branch", "change/12-add-greeting"), ("triggering_actor", {"login": "owner2"}),
+                           ("created_at", "2026-11-16T10:06:00Z"), ("repository", {"full_name": "x/fork"})):
+            with self.subTest(key=key):
+                self.state["runs"]["77"] = {**good, key: value}
+                self.state["issues"]["12"]["comments"] = []
+                self.card_record()
+                code, out = self.run_check()
+                self.assertEqual(code, 1, out)
+
+    def test_record_from_a_branch_workflow_is_ignored(self) -> None:
+        self.state["runs"]["77"].update(event="push", head_branch="change/12-add-greeting")
+        self.card_record()
+        self.assertEqual(self.run_check()[0], 1)
+
+    def test_edited_records_are_ignored(self) -> None:
+        self.card_record(updated="2026-11-16T11:00:00Z")
+        self.assertEqual(self.run_check()[0], 1)
+        terminal = f"<!-- ai-specs:approval digest={self.digest()} commit=abcdef1 by=owner1 -->"
+        self.state["issues"]["12"]["comments"] = [{"id": 9, "user": {"login": "owner1"}, "body": terminal,
+                                                   "created_at": WHEN, "updated_at": "2026-11-16T11:00:00Z"}]
+        self.save()
+        self.assertEqual(self.run_check()[0], 1)
+        self.state["issues"]["12"]["comments"][0]["updated_at"] = WHEN
+        self.save()
+        self.assertEqual(self.run_check()[0], 0)
+
+    def test_terminal_and_card_count_together(self) -> None:
+        (self.repo / "openspec" / "roles.yaml").write_text("approvers: [owner1, owner2]\nreviewers: [owner1]\n"
+                                                           "releasers: [owner1]\nmin_approvals: 2\n", encoding="utf-8")
+        self.approve()  # terminal, by owner1
+        self.state = self.load()
+        self.card_record()  # card, also by owner1: still one approver
+        self.assertEqual(self.run_check()[0], 1)
+        self.state["runs"]["78"] = {**self.state["runs"]["77"], "triggering_actor": {"login": "owner2"}}
+        self.card_record(by="owner2", run="78")
+        code, out = self.run_check()
+        self.assertEqual(code, 0, out)
+        self.assertIn("owner1, owner2", out)
+
+    def test_missing_run_is_exit_1(self) -> None:
+        self.card_record(run="404")
+        code, out = self.run_check()
+        self.assertEqual(code, 1)
+        self.assertIn("approve again", out)
+
+    def test_run_lookup_error_is_exit_2(self) -> None:
+        self.state["fail_routes"] = ["repos/{owner}/{repo}/actions/runs/77"]
+        self.card_record()
+        self.assertEqual(self.run_check()[0], 2)
+
+    def test_old_terminal_regex_ignores_card_records(self) -> None:
+        self.card_record()
+        body = self.state["issues"]["12"]["comments"][-1]["body"]
+        self.assertEqual(approval.APPROVAL_RE.findall(body), [])
+
+
 if __name__ == "__main__":
     unittest.main()
